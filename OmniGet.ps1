@@ -55,6 +55,11 @@ $actionLower = $Action.ToLower()
 if ($actionLower -eq "update") { $actionLower = "upgrade" }
 if ($actionLower -eq "remove") { $actionLower = "uninstall" }
 
+# Handle 'update all' edge case
+if ($actionLower -eq "upgrade" -and $Name -eq "all") {
+    $actionLower = "all"
+}
+
 # 3. Main Command Routing
 switch ($actionLower) {
     "all" {
