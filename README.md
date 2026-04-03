@@ -2,7 +2,7 @@
 
 A sleek, universal PowerShell wrapper for the three most popular Windows package managers: **WinGet**, **Chocolatey**, and **Scoop**.
 
-Instead of remembering the nuances of three different CLIs, use the `omniget` (or `app`) command to systematically search, install, upgrade, and manage software across your entire ecosystem.
+Instead of remembering the nuances of three different CLIs, use the `omniget` command to systematically search, install, upgrade, and manage software across your entire ecosystem.
 
 ## ✨ Features
 * **Universal Operations**: Use standard commands like `install`, `upgrade`, `uninstall`, `search`, and `list` across all managers simultaneously.
@@ -13,17 +13,20 @@ Instead of remembering the nuances of three different CLIs, use the `omniget` (o
 
 ## 🚀 Installation
 
-There are two primary ways to setup OmniGet natively:
+There are three primary ways to setup OmniGet natively:
 
-### Option A: Edit your PowerShell Profile (Recommended)
+### Option A: Add to System PATH (Recommended)
+Add the folder containing `OmniGet.ps1` to your Windows `PATH` environment variable. Once added, you can call `omniget` directly from any terminal!
+
+### Option B: Edit your PowerShell Profile
 1. Open PowerShell and type:
    ```powershell
    notepad $PROFILE
    ```
 2. Paste the contents of `OmniGet.ps1` at the very bottom of the document.
-3. Save, restart PowerShell, and use `app` natively!
+3. Save, restart PowerShell, and use `omniget` natively!
 
-### Option B: Dot-Source the Script
+### Option C: Dot-Source the Script
 Keep `OmniGet.ps1` somewhere on your computer and simply dot-source it in your profile:
 ```powershell
 . "C:\Path\To\Your\Folder\OmniGet.ps1"
@@ -33,32 +36,32 @@ Keep `OmniGet.ps1` somewhere on your computer and simply dot-source it in your p
 
 Installs cascading through WinGet ➔ Chocolatey ➔ Scoop until successful:
 ```powershell
-app install nodejs
+omniget install nodejs
 ```
 
 Pass down specific versions or arguments:
 ```powershell
-app install vlc --version 3.0.0
+omniget install vlc --version 3.0.0
 ```
 
 Update everything on your system (across all 3 package managers!):
 ```powershell
-app upgrade all
+omniget upgrade all
 ```
 
 Search across all registries simultaneously to see where a tool lives:
 ```powershell
-app search powertoys
+omniget search powertoys
 ```
 
 View your system's entire managed software catalog:
 ```powershell
-app list
+omniget list
 ```
 
 Remove an application seamlessly regardless of how it was installed:
 ```powershell
-app uninstall python
+omniget uninstall python
 ```
 
 ## 🛠️ Prerequisites
