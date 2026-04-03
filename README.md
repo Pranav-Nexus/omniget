@@ -9,6 +9,7 @@ Instead of remembering the nuances of three different CLIs, use the `omniget` co
 * **Cascading Fallbacks**: Automatically tries to find or install an app using WinGet first. If it fails, it gracefully falls back to Chocolatey, and then to Scoop.
 * **Smart Upgrades**: When running `install` or `upgrade`, it detects which package manager primarily tracks the tool and routes requests to prevent conflicting states.
 * **Safe & Zero-Config**: If a package manager is missing on a workstation, it safely skips it without throwing ugly PowerShell errors.
+* **Chocolatey Automation**: Automatically bypasses the annoying 20-second Chocolatey administrative warning prompt so non-elevated installations can quickly fallback and proceed without interruption.
 * **Argument Passthrough**: Append custom flags like `--version` and they are seamlessly passed down to the underlying tools.
 
 ## 🚀 Installation

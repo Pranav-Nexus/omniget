@@ -91,7 +91,7 @@ switch ($actionLower) {
         }
         if ($hasChoco) {
             Write-Host "`n[Chocolatey]" -ForegroundColor Gray
-            choco upgrade all @chFlags
+            "y" | choco upgrade all @chFlags
         }
         if ($hasScoop) {
             Write-Host "`n[Scoop]" -ForegroundColor Gray
@@ -123,7 +123,7 @@ switch ($actionLower) {
         # Fallback to Chocolatey
         if (-not $success -and $hasChoco) {
             Write-Host "🍫 Attempting to install '$Name' via Chocolatey..." -ForegroundColor Yellow
-            choco install $Name @chFlags
+            "y" | choco install $Name @chFlags
             if ($LASTEXITCODE -eq 0) {
                 $success = $true
                 # Optionally try to tell Winget to track this choco package so we avoid duplicate versions
@@ -163,9 +163,9 @@ switch ($actionLower) {
         $success = $false
 
         # Check Choco first (since it leaves strong local markers, we don't want winget overwriting its state)
-        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
+        if ($hasChoco -and (choco list | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "📦 Updating '$Name' via Chocolatey..." -ForegroundColor Yellow
-            choco upgrade $Name @chFlags
+            "y" | choco upgrade $Name @chFlags
             if ($LASTEXITCODE -eq 0) { $success = $true }
         }
             
@@ -196,9 +196,9 @@ switch ($actionLower) {
 
         $success = $false
 
-        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
+        if ($hasChoco -and (choco list | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "🗑️ Removing '$Name' via Chocolatey..." -ForegroundColor Yellow
-            choco uninstall $Name @chFlags
+            "y" | choco uninstall $Name @chFlags
             if ($hasWinget) { winget pin remove --name $Name -q 2>$null }
             $success = $true
         }
@@ -253,7 +253,7 @@ switch ($actionLower) {
         if ($hasChoco) {
             Write-Host "`n📋 [Chocolatey] Installed Packages..." -ForegroundColor Yellow
             if ([string]::IsNullOrWhiteSpace($Name)) {
-                if ($RemainingArgs) { choco list -l @RemainingArgs } else { choco list -l }
+                if ($RemainingArgs) { choco list @RemainingArgs } else { choco list }
             }
             else {
                 if ($RemainingArgs) { choco list $Name @RemainingArgs } else { choco list $Name }
@@ -302,10 +302,10 @@ switch ($actionLower) {
         if (-not $success -and $hasChoco) {
             Write-Host "🍫 Running '$Action' via Chocolatey..." -ForegroundColor Yellow
             if ([string]::IsNullOrWhiteSpace($Name)) {
-                if ($chFlags) { choco $actionLower @chFlags } else { choco $actionLower }
+                if ($chFlags) { "y" | choco $actionLower @chFlags } else { "y" | choco $actionLower }
             }
             else {
-                if ($chFlags) { choco $actionLower $Name @chFlags } else { choco $actionLower $Name }
+                if ($chFlags) { "y" | choco $actionLower $Name @chFlags } else { "y" | choco $actionLower $Name }
             }
             if ($LASTEXITCODE -eq 0) { $success = $true }
         }
