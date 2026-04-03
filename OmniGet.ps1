@@ -3,16 +3,16 @@
     A universal wrapper for Windows package managers (WinGet, Chocolatey, Scoop).
 
     .DESCRIPTION
-    The 'app' command provides a unified interface to install, update, remove, search, and manage packages across your entire Windows ecosystem. 
+    The 'omniget' command provides a unified interface to install, update, remove, search, and manage packages across your entire Windows ecosystem. 
     It elegantly cascades through installed package managers (WinGet -> Chocolatey -> Scoop) to find and manage your software.
     If a package manager is not installed, it safely skips it.
 
     .EXAMPLE
-    app install nodejs
-    app install vlc --version 3.0.0
-    app update all
-    app search powertoys
-    app list
+    omniget install nodejs
+    omniget install vlc --version 3.0.0
+    omniget update all
+    omniget search powertoys
+    omniget list
     #>
 [CmdletBinding()]
 param(
@@ -37,6 +37,37 @@ if (-not ($hasWinget -or $hasChoco -or $hasScoop)) {
     return
 }
 
+# Fix PowerShell positional binding for things like 'omniget install --silent nodejs' where '--silent' gets bound to $Name
+if (-not [string]::IsNullOrWhiteSpace($Name) -and $Name.StartsWith("-")) {
+    $RemainingArgs = @($Name) + @($RemainingArgs | Where-Object { $null -ne $_ })
+    $Name = ""
+}
+
+if ([string]::IsNullOrWhiteSpace($Name) -and $RemainingArgs) {
+    $newRemaining = @()
+    foreach ($arg in $RemainingArgs) {
+        if ([string]::IsNullOrWhiteSpace($Name) -and -not $arg.StartsWith("-")) {
+            $Name = $arg
+        } else {
+            $newRemaining += $arg
+        }
+    }
+    $RemainingArgs = $newRemaining
+}
+
+$actionLower = $Action.ToLower()
+
+# Map our common aliases to their official counterparts
+if ($actionLower -eq "update") { $actionLower = "upgrade" }
+if ($actionLower -eq "remove") { $actionLower = "uninstall" }
+
+# Handle 'update all' edge case natively parsing '--all' correctly
+if ($actionLower -eq "upgrade" -and ($Name -ieq "all" -or $RemainingArgs -contains "--all" -or $RemainingArgs -contains "-all")) {
+    $actionLower = "all"
+    $RemainingArgs = @($RemainingArgs | Where-Object { $_ -ne "--all" -and $_ -ne "-all" })
+    $Name = ""
+}
+
 # 2. Setup Default Flags for each ecosystem
 $wgFlags = @("--silent", "--accept-package-agreements", "--accept-source-agreements")
 $chFlags = @("-y", "--silent")
@@ -47,17 +78,6 @@ if ($null -ne $RemainingArgs -and $RemainingArgs.Count -gt 0) {
     $wgFlags += $RemainingArgs
     $chFlags += $RemainingArgs
     $scFlags += $RemainingArgs
-}
-
-$actionLower = $Action.ToLower()
-
-# Map our common aliases to their official counterparts
-if ($actionLower -eq "update") { $actionLower = "upgrade" }
-if ($actionLower -eq "remove") { $actionLower = "uninstall" }
-
-# Handle 'update all' edge case
-if ($actionLower -eq "upgrade" -and $Name -eq "all") {
-    $actionLower = "all"
 }
 
 # 3. Main Command Routing
@@ -136,21 +156,21 @@ switch ($actionLower) {
     }
     "upgrade" {
         if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name to upgrade, or use 'app update all'." -ForegroundColor Red
+            Write-Host "⚠️ Please specify a package name to upgrade, or use 'omniget update all'." -ForegroundColor Red
             return
         }
             
         $success = $false
 
         # Check Choco first (since it leaves strong local markers, we don't want winget overwriting its state)
-        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$Name\s" -Quiet)) {
+        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "📦 Updating '$Name' via Chocolatey..." -ForegroundColor Yellow
             choco upgrade $Name @chFlags
             if ($LASTEXITCODE -eq 0) { $success = $true }
         }
             
         # Check Scoop
-        if (-not $success -and $hasScoop -and (scoop list | Select-String -Pattern "^\s*$Name\s" -Quiet)) {
+        if (-not $success -and $hasScoop -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "🥄 Updating '$Name' via Scoop..." -ForegroundColor Green
             scoop update $Name @scFlags
             if ($?) { $success = $true }
@@ -176,14 +196,14 @@ switch ($actionLower) {
 
         $success = $false
 
-        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$Name\s" -Quiet)) {
+        if ($hasChoco -and (choco list --local-only | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "🗑️ Removing '$Name' via Chocolatey..." -ForegroundColor Yellow
             choco uninstall $Name @chFlags
             if ($hasWinget) { winget pin remove --name $Name -q 2>$null }
             $success = $true
         }
             
-        if (-not $success -and $hasScoop -and (scoop list | Select-String -Pattern "^\s*$Name\s" -Quiet)) {
+        if (-not $success -and $hasScoop -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
             Write-Host "🗑️ Removing '$Name' via Scoop..." -ForegroundColor Green
             scoop uninstall $Name @scFlags
             $success = $true
