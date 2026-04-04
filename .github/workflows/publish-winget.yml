@@ -9,13 +9,19 @@ permissions:
 
 jobs:
   publish-winget:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Compile to EXE
+        shell: pwsh
+        run: |
+          Install-Module ps2exe -Force -Scope CurrentUser -AcceptLicense
+          Invoke-ps2exe .\OmniGet.ps1 .\omniget.exe -noConsole
+
       - name: Create Portable Zip
-        run: zip -r omniget.zip OmniGet.ps1 omniget.cmd
+        run: Compress-Archive -Path omniget.exe -DestinationPath omniget.zip
 
       - name: Upload Release Asset
         env:
