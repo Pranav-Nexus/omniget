@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Do not remove this test for UTF-8: if “Ω” doesn’t appear as greek uppercase omega letter enclosed in quotation marks, you should use an editor that supports UTF-8, not this one. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>nexus-omniget</id>
+    <version>1.0.0</version>
+    <title>OmniGet (Portable)</title>
+    <authors>Pranav-Nexus</authors>
+    <projectUrl>https://github.com/Pranav-Nexus/omniget</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/Pranav-Nexus/omniget/main/icon.png</iconUrl>
+    <licenseUrl>https://github.com/Pranav-Nexus/omniget/blob/main/LICENSE</licenseUrl>
+    <projectSourceUrl>https://github.com/Pranav-Nexus/omniget</projectSourceUrl>
+    <packageSourceUrl>https://github.com/Pranav-Nexus/omniget</packageSourceUrl>
+    <bugTrackerUrl>https://github.com/Pranav-Nexus/omniget/issues</bugTrackerUrl>
+    <copyright>2026 Pranav-Nexus</copyright>
+    <tags>omniget winget chocolatey scoop package-manager unified-installer</tags>
+    <summary>A universal wrapper for Windows package managers (WinGet, Chocolatey, Scoop).</summary>
+    <description>
+      The `omniget` command provides a unified interface to install, update, remove, search, and manage packages across your entire Windows ecosystem. 
+      It cascades through installed package managers based on your custom configuration order.
+      If a package manager is not installed, it safely skips it. OmniGet includes interactive conflict detection (Doctor) and WSL integrations.
+    </description>
+    <releaseNotes>Initial release 1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <!-- this section controls what actually gets packaged into the Chocolatey package -->
+    <file src="..\..\omniget.cmd" target="tools" />
+    <file src="..\..\OmniGet.ps1" target="tools" />
+  </files>
+</package>

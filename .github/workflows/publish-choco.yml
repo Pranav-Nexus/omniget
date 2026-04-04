@@ -1,0 +1,32 @@
+name: Publish Chocolatey Package
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-choco:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Chocolatey
+        uses: crazy-max/ghaction-chocolatey@v3
+
+      - name: Pack OmniGet Chocolatey Package
+        run: |
+          cd packaging/choco
+          choco pack omniget.nuspec
+
+      - name: Push to Chocolatey Community
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          cd packaging/choco
+          # Only push if the secret exists (prevents PR execution failure)
+          if ([string]::IsNullOrEmpty($env:CHOCO_API_KEY)) {
+              Write-Error "CHOCO_API_KEY secret is not configured!"
+              exit 1
+          }
+          choco push --source=https://push.chocolatey.org/ -k="'$env:CHOCO_API_KEY'" --force

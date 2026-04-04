@@ -131,7 +131,7 @@ if ($availablePMs.Count -eq 0) {
 # Priority Configuration
 $configFile = Join-Path $env:USERPROFILE ".omniget_config.json"
 
-function Run-PriorityWizard {
+function Invoke-PriorityWizard {
     Write-Host ""
     Write-Host "Welcome to OmniGet First Run / Config!" -ForegroundColor Cyan
     Write-Host "Let's set your package manager priority order." -ForegroundColor White
@@ -159,13 +159,13 @@ function Run-PriorityWizard {
 }
 
 if ($actionLower -eq "priority") {
-    Run-PriorityWizard | Out-Null
+    Invoke-PriorityWizard | Out-Null
     return
 }
 
 $configPriority = @()
 if (-not (Test-Path $configFile)) {
-    $configPriority = Run-PriorityWizard
+    $configPriority = Invoke-PriorityWizard
 }
 else {
     try {
