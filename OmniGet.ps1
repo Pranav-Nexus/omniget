@@ -16,53 +16,84 @@
     omniget priority
     omniget doctor
     #>
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [string]$Action,
+$Action = ""
+$Name = ""
+$RemainingArgs = @()
 
-    [Parameter(Position = 1)]
-    [string]$Name,
+foreach ($a in $args) {
+    if ($Action -eq "" -and -not $a.StartsWith("-")) {
+        $Action = $a
+    }
+    elseif ($Name -eq "" -and -not $a.StartsWith("-") -and $Action -ne "") {
+        $Name = $a
+    }
+    else {
+        $RemainingArgs += $a
+    }
+}
 
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$RemainingArgs
-)
+function Show-Help {
+    Write-Host "OmniGet Universal Package Manager Wrapper" -ForegroundColor Cyan
+    Write-Host "A unified wrapper for WinGet, Chocolatey, and Scoop.`n"
+    
+    Write-Host "The omniget command line utility enables installing applications and other packages from the command line while elegantly cascading through installed package managers.`n"
+    
+    Write-Host "usage: omniget [<command>] [<package_name>] [<options>]`n" 
 
-# 1. Detect Installed Tools
-$hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
-$hasChoco = [bool](Get-Command choco -ErrorAction SilentlyContinue)
-$hasScoop = [bool](Get-Command scoop -ErrorAction SilentlyContinue)
-$hasWsl = [bool](Get-Command wsl -ErrorAction SilentlyContinue)
+    Write-Host "The following commands are natively enhanced by OmniGet:" -ForegroundColor Yellow
+    Write-Host "  install    Installs the given package across configured package managers"
+    Write-Host "  upgrade    Shows and performs available upgrades"
+    Write-Host "  uninstall  Uninstalls the given package"
+    Write-Host "  search     Find and show basic info of packages"
+    Write-Host "  list       Display installed packages"
+    Write-Host "  info       Shows information about a package"
+    Write-Host "  doctor     [OmniGet] Scans for duplicated packages across managers"
+    Write-Host "  priority   [OmniGet] Configure your package manager priority order`n"
+    
+    Write-Host "Standard WinGet commands (passed through):" -ForegroundColor White
+    Write-Host "  show, source, hash, validate, settings, features, export, import, pin, configure, download, repair, dscv3, mcp`n"
 
-$availablePMs = @()
-if ($hasWinget) { $availablePMs += "winget" }
-if ($hasChoco) { $availablePMs += "choco" }
-if ($hasScoop) { $availablePMs += "scoop" }
+    Write-Host "The following options are available:" -ForegroundColor Yellow
+    Write-Host "  -v,--version                Display the version of the tool"
+    Write-Host "  --info                      Display general info of the tool"
+    Write-Host "  -?,--help                   Shows help about the selected command"
+    Write-Host "  (All other WinGet/Choco/Scoop options are dynamically passed through to the respective installer)`n"
+}
 
-if ($availablePMs.Count -eq 0) {
-    Write-Host "❌ [ERROR] No supported package managers found! You must have WinGet, Chocolatey, or Scoop installed." -ForegroundColor Red
+$actionLower = $Action.ToLower().Trim()
+$OmniGetVersion = "v1.0.0"
+
+# Commands that act like global flags
+if ($actionLower -in @("-v", "--version") -or $RemainingArgs -contains "-v" -or $RemainingArgs -contains "--version") {
+    Write-Host "OmniGet $OmniGetVersion" -ForegroundColor Cyan
+    if (Get-Command winget -ErrorAction SilentlyContinue) { 
+        $wVer = winget --version
+        Write-Host "WinGet: $wVer" -ForegroundColor DarkGray
+    }
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        $cVer = choco -v | Select-Object -First 1
+        Write-Host "Chocolatey: $cVer" -ForegroundColor DarkGray
+    }
+    if (Get-Command scoop -ErrorAction SilentlyContinue) {
+        $sVer = scoop -v | Select-Object -First 1
+        Write-Host "Scoop: $sVer" -ForegroundColor DarkGray
+    }
     return
 }
 
-# Fix PowerShell positional binding for things like 'omniget install --silent nodejs'
-if (-not [string]::IsNullOrWhiteSpace($Name) -and $Name.StartsWith("-")) {
-    $RemainingArgs = @($Name) + @($RemainingArgs | Where-Object { $null -ne $_ })
-    $Name = ""
+if ($RemainingArgs -contains "--info" -or ($actionLower -eq "info" -and $Name -eq "")) {
+    Write-Host "OmniGet System Information ($OmniGetVersion)" -ForegroundColor Cyan
+    if (Get-Command winget -ErrorAction SilentlyContinue) { winget --info }
+    if (Get-Command choco -ErrorAction SilentlyContinue) { Write-Host "`n[Chocolatey]" -ForegroundColor Yellow; choco info chocolatey 2>$null }
+    if (Get-Command scoop -ErrorAction SilentlyContinue) { Write-Host "`n[Scoop]" -ForegroundColor Green; scoop info scoop 2>$null }
+    return
 }
 
-if ([string]::IsNullOrWhiteSpace($Name) -and $RemainingArgs) {
-    $newRemaining = @()
-    foreach ($arg in $RemainingArgs) {
-        if ([string]::IsNullOrWhiteSpace($Name) -and -not $arg.StartsWith("-")) {
-            $Name = $arg
-        } else {
-            $newRemaining += $arg
-        }
-    }
-    $RemainingArgs = $newRemaining
+# If empty action or help
+if ($actionLower -eq "" -or $actionLower -in @("-?", "--help", "help") -or $RemainingArgs -contains "-?" -or $RemainingArgs -contains "--help") {
+    Show-Help
+    return
 }
-
-$actionLower = $Action.ToLower()
 
 # Map aliases
 if ($actionLower -eq "update") { $actionLower = "upgrade" }
@@ -75,7 +106,6 @@ if ($actionLower -eq "upgrade" -and ($Name -ieq "all" -or $RemainingArgs -contai
     $Name = ""
 }
 
-# Setup Default Flags
 $wgFlags = @("--silent", "--accept-package-agreements", "--accept-source-agreements")
 $chFlags = @("-y", "--silent")
 $scFlags = @()
@@ -86,29 +116,45 @@ if ($null -ne $RemainingArgs -and $RemainingArgs.Count -gt 0) {
     $scFlags += $RemainingArgs
 }
 
-# 2. Configuration Management
+# Tool Detection
+$availablePMs = @()
+if (Get-Command winget -ErrorAction SilentlyContinue) { $availablePMs += "winget" }
+if (Get-Command choco -ErrorAction SilentlyContinue) { $availablePMs += "choco" }
+if (Get-Command scoop -ErrorAction SilentlyContinue) { $availablePMs += "scoop" }
+$hasWsl = [bool](Get-Command wsl -ErrorAction SilentlyContinue)
+
+if ($availablePMs.Count -eq 0) {
+    Write-Host "[ERROR] No supported package managers found! You must have WinGet, Chocolatey, or Scoop installed." -ForegroundColor Red
+    return
+}
+
+# Priority Configuration
 $configFile = Join-Path $env:USERPROFILE ".omniget_config.json"
 
 function Run-PriorityWizard {
-    Write-Host "`n👋 Welcome to OmniGet First Run / Config!" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Welcome to OmniGet First Run / Config!" -ForegroundColor Cyan
     Write-Host "Let's set your package manager priority order." -ForegroundColor White
     $priority = @()
     $remaining = $availablePMs | Select-Object -Unique
     
     while ($remaining.Count -gt 0) {
-        Write-Host "Available to select: $($remaining -join ', ')" -ForegroundColor Yellow
-        $choice = Read-Host "Which one should be priority $($priority.Count + 1)? (type name)"
+        $remStr = $remaining -join ', '
+        Write-Host "Available to select: $remStr" -ForegroundColor Yellow
+        $cCount = $priority.Count + 1
+        $choice = Read-Host "Which one should be priority $cCount ? (type name)"
         $choiceLower = $choice.Trim().ToLower()
         if ($remaining -contains $choiceLower) {
             $priority += $choiceLower
             $remaining = $remaining | Where-Object { $_ -ne $choiceLower }
-        } else {
-            Write-Host "⚠️ Invalid choice. Please type one of the available names." -ForegroundColor Red
+        }
+        else {
+            Write-Host "Invalid choice. Please type one of the available names." -ForegroundColor Red
         }
     }
     $configData = @{ "Priority" = $priority }
     $configData | ConvertTo-Json | Set-Content $configFile -Force
-    Write-Host "✅ Priority saved!" -ForegroundColor Green
+    Write-Host "Priority saved!" -ForegroundColor Green
     return $priority
 }
 
@@ -117,13 +163,16 @@ if ($actionLower -eq "priority") {
     return
 }
 
+$configPriority = @()
 if (-not (Test-Path $configFile)) {
     $configPriority = Run-PriorityWizard
-} else {
+}
+else {
     try {
         $config = Get-Content $configFile -Raw | ConvertFrom-Json
         $configPriority = $config.Priority
-    } catch {
+    }
+    catch {
         $configPriority = Run-PriorityWizard
     }
 }
@@ -131,275 +180,279 @@ if (-not (Test-Path $configFile)) {
 $activePriority = $configPriority | Where-Object { $availablePMs -contains $_ }
 if ($activePriority.Count -eq 0) { $activePriority = $availablePMs }
 
-# 3. Main Command Routing
+# Main Command Routing
 switch ($actionLower) {
     "doctor" {
-        Write-Host "🩺 OmniGet Conflict Doctor" -ForegroundColor Cyan
-        Write-Host "Scanning for duplicated packages across package managers...`n" -ForegroundColor DarkGray
-        
+        Write-Host "OmniGet Conflict Doctor" -ForegroundColor Cyan
+        Write-Host "Scanning for duplicated packages across package managers..." -ForegroundColor DarkGray
         $chocoPackages = @()
         if ("choco" -in $activePriority) {
             $chocoRaw = choco list -lo
             foreach ($line in $chocoRaw) {
-                if ($line -match "^\s*([a-zA-Z0-9\-\._]+)\s+\d") {
+                if ($line -match '^\s*([a-zA-Z0-9\-\._]+)\s+\d') {
                     $n = $matches[1]
                     if ($n -ne "chocolatey") { $chocoPackages += $n }
                 }
             }
         }
-
         $conflicts = @()
         if ("winget" -in $activePriority -and $chocoPackages.Count -gt 0) {
-            Write-Host "Comparing $($chocoPackages.count) Chocolatey packages against WinGet database... This may take a moment." -ForegroundColor Cyan
+            $cCount = $chocoPackages.count
+            Write-Host "Comparing $cCount Chocolatey packages against WinGet database... This may take a moment." -ForegroundColor Cyan
             foreach ($pkg in $chocoPackages) {
                 $wgSearch = winget list $pkg -q 2>$null | Select-String $pkg
-                if ($wgSearch) {
-                    $conflicts += $pkg
-                }
+                if ($wgSearch) { $conflicts += $pkg }
             }
         }
 
         if ($conflicts.Count -gt 0) {
-            Write-Host "`n⚠️ Found $($conflicts.Count) potential conflicts (installed in both WinGet and Choco):" -ForegroundColor Yellow
+            $cfCount = $conflicts.Count
+            Write-Host "Found $cfCount potential conflicts (installed in both WinGet and Choco):" -ForegroundColor Yellow
             $highest = $activePriority | Where-Object { $_ -eq "winget" -or $_ -eq "choco" } | Select-Object -First 1
-            
             foreach ($conflict in $conflicts) {
-                Write-Host "`n- $conflict" -ForegroundColor White
-                Write-Host "   💡 Priority Recommendation: Keep $highest, uninstall the other." -ForegroundColor Cyan
-                $ans = Read-Host "   Action? [W]inGet uninstall, [C]hoco uninstall, [S]kip"
-                if ($ans -match "^w") {
-                    winget uninstall $conflict
-                } elseif ($ans -match "^c") {
-                    "y" | choco uninstall $conflict
-                }
+                Write-Host "- $conflict" -ForegroundColor White
+                Write-Host "  Priority Recommendation: Keep $highest, uninstall the other." -ForegroundColor Cyan
+                $ans = Read-Host "  Action? [W]inGet uninstall, [C]hoco uninstall, [S]kip"
+                if ($ans -match '^w') { winget uninstall $conflict }
+                elseif ($ans -match '^c') { "y" | choco uninstall $conflict }
             }
-        } else {
-            Write-Host "`n✅ System is healthy! No duplicates found." -ForegroundColor Green
         }
-        break
+        else {
+            Write-Host "System is healthy! No duplicates found." -ForegroundColor Green
+        }
     }
     "all" {
-        Write-Host "🚀 Updating EVERYTHING acting in priority order: $($activePriority -join ' -> ')" -ForegroundColor Cyan
+        $apStr = $activePriority -join ' -> '
+        Write-Host "Updating EVERYTHING acting in priority order: $apStr" -ForegroundColor Cyan
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "`n[WinGet]" -ForegroundColor Gray
+                Write-Host "[WinGet]" -ForegroundColor Gray
                 winget upgrade --all @wgFlags
-            } elseif ($pm -eq "choco") {
-                Write-Host "`n[Chocolatey]" -ForegroundColor Gray
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "[Chocolatey]" -ForegroundColor Gray
                 "y" | choco upgrade all @chFlags
-            } elseif ($pm -eq "scoop") {
-                Write-Host "`n[Scoop]" -ForegroundColor Gray
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "[Scoop]" -ForegroundColor Gray
                 scoop update
                 scoop update * @scFlags
             }
         }
-        break
     }
     "install" {
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name to install." -ForegroundColor Red
+        if ($Name -eq "") {
+            Write-Host "Please specify a package name to install." -ForegroundColor Red
             return
         }
-
         $success = $false
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "🔍 Attempting to install '$Name' via WinGet..." -ForegroundColor Cyan
+                Write-Host "Attempting to install '$Name' via WinGet..." -ForegroundColor Cyan
                 winget install $Name --exact @wgFlags
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
-            } elseif ($pm -eq "choco") {
-                Write-Host "🍫 Attempting to install '$Name' via Chocolatey..." -ForegroundColor Yellow
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "Attempting to install '$Name' via Chocolatey..." -ForegroundColor Yellow
                 "y" | choco install $Name @chFlags
                 if ($LASTEXITCODE -eq 0) { 
                     $success = $true
                     if ("winget" -in $availablePMs) {
-                        Write-Host "📌 [Intelligent Pinning] Pinning '$Name' in WinGet to prevent future conflicts..." -ForegroundColor Magenta
+                        Write-Host "[Intelligent Pinning] Pinning '$Name' in WinGet to prevent future conflicts..." -ForegroundColor Magenta
                         winget pin add --name $Name -e -q 2>$null
                     }
                     break 
                 }
-            } elseif ($pm -eq "scoop") {
-                Write-Host "🥄 Attempting to install '$Name' via Scoop..." -ForegroundColor Green
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "Attempting to install '$Name' via Scoop..." -ForegroundColor Green
                 scoop install $Name @scFlags
                 if ($LASTEXITCODE -eq 0 -or $?) { $success = $true; break }
             }
         }
 
         if (-not $success) {
-            Write-Host "`n❌ Failed to install '$Name' natively on Windows." -ForegroundColor Red
-            
+            Write-Host "Failed to install '$Name' natively on Windows." -ForegroundColor Red
             if ($hasWsl) {
-                Write-Host "`n🐧 Package not found in Windows. Checking WSL..." -ForegroundColor Cyan
+                Write-Host "Package not found in Windows. Checking WSL..." -ForegroundColor Cyan
                 $distrosRaw = wsl.exe --list --quiet 2>$null
                 if ($distrosRaw) {
-                    $distros = ($distrosRaw -replace "\x00", "") -split "`r`n" | Where-Object { ![string]::IsNullOrWhiteSpace($_) }
-                    
+                    $distros = ($distrosRaw -replace '\x00', '') -split '\r?\n' | Where-Object { $_.Trim() -ne '' }
                     if ($distros.Count -gt 0) {
                         $ans = Read-Host "Would you like to install '$Name' in WSL instead? [Y]es / [N]o"
-                        if ($ans -match "^y") {
+                        if ($ans -match '^y') {
                             $targetDistros = @()
                             if ($distros.Count -gt 1) {
-                                Write-Host "`nFound multiple WSL distributions:" -ForegroundColor Yellow
-                                for ($i=0; $i -lt $distros.Count; $i++) {
-                                    Write-Host "$($i+1). $($distros[$i])"
+                                Write-Host "Found multiple WSL distributions:" -ForegroundColor Yellow
+                                for ($i = 0; $i -lt $distros.Count; $i++) {
+                                    $idx = $i + 1
+                                    Write-Host "$idx. $($distros[$i])"
                                 }
                                 $ansDistro = Read-Host "Which ones? (number, comma-separated, or 'all')"
-                                if ($ansDistro.ToLower() -eq "all") {
+                                if ($ansDistro.ToLower() -eq 'all') {
                                     $targetDistros = $distros
-                                } else {
-                                    $indices = $ansDistro -split "," | ForEach-Object { [int]$_.Trim() - 1 }
+                                }
+                                else {
+                                    $indices = $ansDistro -split ',' | ForEach-Object { [int]$_.Trim() - 1 }
                                     foreach ($i in $indices) {
                                         if ($i -ge 0 -and $i -lt $distros.Count) { $targetDistros += $distros[$i] }
                                     }
                                 }
-                            } else {
+                            }
+                            else {
                                 $targetDistros = $distros
                             }
                             
                             foreach ($d in $targetDistros) {
-                                Write-Host "`n[WSL: $d] Detecting package manager & installing '$Name'..." -ForegroundColor Magenta
-                                $shCmd = "if command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y $Name; elif command -v pacman >/dev/null; then sudo pacman -S --noconfirm $Name; elif command -v dnf >/dev/null; then sudo dnf install -y $Name; elif command -v zypper >/dev/null; then sudo zypper install -y $Name; else echo 'Unknown package manager'; exit 1; fi"
-                                wsl.exe -d $d -e sh -c $shCmd
+                                Write-Host "[WSL: $d] Detecting package manager and installing '$Name'..." -ForegroundColor Magenta
+                                $shCmd = 'if command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y ' + $Name + '; elif command -v pacman >/dev/null; then sudo pacman -S --noconfirm ' + $Name + '; elif command -v dnf >/dev/null; then sudo dnf install -y ' + $Name + '; elif command -v zypper >/dev/null; then sudo zypper install -y ' + $Name + '; else echo "Unknown package manager"; exit 1; fi'
+                                wsl.exe -d $d -e sh -c "$shCmd"
                             }
                             $success = $true 
                         }
                     }
                 }
             }
-        } else {
-            Write-Host "`n✅ '$Name' installed successfully!" -ForegroundColor Green
         }
-        break
+        else {
+            Write-Host "'$Name' installed successfully!" -ForegroundColor Green
+        }
     }
     "upgrade" {
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name to upgrade, or use 'omniget update all'." -ForegroundColor Red
+        if ($Name -eq "") {
+            Write-Host "Please specify a package name to upgrade." -ForegroundColor Red
             return
         }
         $success = $false
         foreach ($pm in $activePriority) {
-            if ($pm -eq "choco" -and (choco list | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
-                Write-Host "📦 Updating '$Name' via Chocolatey..." -ForegroundColor Yellow
+            if ($pm -eq "choco" -and (choco list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
+                Write-Host "Updating '$Name' via Chocolatey..." -ForegroundColor Yellow
                 "y" | choco upgrade $Name @chFlags
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
-            } elseif ($pm -eq "scoop" -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
-                Write-Host "🥄 Updating '$Name' via Scoop..." -ForegroundColor Green
+            }
+            elseif ($pm -eq "scoop" -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
+                Write-Host "Updating '$Name' via Scoop..." -ForegroundColor Green
                 scoop update $Name @scFlags
                 if ($?) { $success = $true; break }
-            } elseif ($pm -eq "winget") {
-                Write-Host "🔍 Updating '$Name' via WinGet..." -ForegroundColor Cyan
+            }
+            elseif ($pm -eq "winget") {
+                Write-Host "Updating '$Name' via WinGet..." -ForegroundColor Cyan
                 winget upgrade $Name @wgFlags
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
             }
         }
         if (-not $success) {
-            Write-Host "❌ Failed to update '$Name'. It might not be installed, not supported, or no updates are available." -ForegroundColor Red
+            Write-Host "Failed to update '$Name'." -ForegroundColor Red
         }
-        break
     }
     "uninstall" {
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name to uninstall." -ForegroundColor Red
+        if ($Name -eq "") {
+            Write-Host "Please specify a package name to uninstall." -ForegroundColor Red
             return
         }
         $success = $false
         foreach ($pm in $activePriority) {
-            if ($pm -eq "choco" -and (choco list | Select-String -Pattern "^$([regex]::Escape($Name))\s" -Quiet)) {
-                Write-Host "🗑️ Removing '$Name' via Chocolatey..." -ForegroundColor Yellow
+            if ($pm -eq "choco" -and (choco list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
+                Write-Host "Removing '$Name' via Chocolatey..." -ForegroundColor Yellow
                 "y" | choco uninstall $Name @chFlags
                 if ("winget" -in $availablePMs) {
-                    Write-Host "📌 [Intelligent Pinning] Removing WinGet pin for '$Name'..." -ForegroundColor Magenta
+                    Write-Host "[Intelligent Pinning] Removing WinGet pin for '$Name'..." -ForegroundColor Magenta
                     winget pin remove --name $Name -q 2>$null
                 }
                 $success = $true; break
-            } elseif ($pm -eq "scoop" -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
-                Write-Host "🗑️ Removing '$Name' via Scoop..." -ForegroundColor Green
+            }
+            elseif ($pm -eq "scoop" -and (scoop list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {
+                Write-Host "Removing '$Name' via Scoop..." -ForegroundColor Green
                 scoop uninstall $Name @scFlags
                 $success = $true; break
-            } elseif ($pm -eq "winget") {
-                Write-Host "🗑️ Removing '$Name' via WinGet..." -ForegroundColor Cyan
+            }
+            elseif ($pm -eq "winget") {
+                Write-Host "Removing '$Name' via WinGet..." -ForegroundColor Cyan
                 winget uninstall $Name @wgFlags
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
             }
         }
         if (-not $success) {
-            Write-Host "❌ Failed to uninstall '$Name' or it was not found on your system." -ForegroundColor Red
+            Write-Host "Failed to uninstall '$Name'." -ForegroundColor Red
         }
-        break
     }
     "search" {
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name to search." -ForegroundColor Red
+        if ($Name -eq "") {
+            Write-Host "Please specify a package name to search." -ForegroundColor Red
             return
         }
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "`n🔍 [WinGet] Searching for '$Name'..." -ForegroundColor Cyan
+                Write-Host "[WinGet] Searching for '$Name'..." -ForegroundColor Cyan
                 if ($RemainingArgs) { winget search $Name @RemainingArgs } else { winget search $Name }
-            } elseif ($pm -eq "choco") {
-                Write-Host "`n🔍 [Chocolatey] Searching for '$Name'..." -ForegroundColor Yellow
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "[Chocolatey] Searching for '$Name'..." -ForegroundColor Yellow
                 if ($RemainingArgs) { choco search $Name @RemainingArgs } else { choco search $Name }
-            } elseif ($pm -eq "scoop") {
-                Write-Host "`n🔍 [Scoop] Searching for '$Name'..." -ForegroundColor Green
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "[Scoop] Searching for '$Name'..." -ForegroundColor Green
                 if ($RemainingArgs) { scoop search $Name @RemainingArgs } else { scoop search $Name }
             }
         }
-        break
     }
     "list" {
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "`n📋 [WinGet] Installed Packages..." -ForegroundColor Cyan
-                if ([string]::IsNullOrWhiteSpace($Name)) { if ($RemainingArgs) { winget list @RemainingArgs } else { winget list } } else { if ($RemainingArgs) { winget list $Name @RemainingArgs } else { winget list $Name } }
-            } elseif ($pm -eq "choco") {
-                Write-Host "`n📋 [Chocolatey] Installed Packages..." -ForegroundColor Yellow
-                if ([string]::IsNullOrWhiteSpace($Name)) { if ($RemainingArgs) { choco list @RemainingArgs } else { choco list } } else { if ($RemainingArgs) { choco list $Name @RemainingArgs } else { choco list $Name } }
-            } elseif ($pm -eq "scoop") {
-                Write-Host "`n📋 [Scoop] Installed Packages..." -ForegroundColor Green
+                Write-Host "[WinGet] Installed Packages..." -ForegroundColor Cyan
+                if ($Name -eq "") { if ($RemainingArgs) { winget list @RemainingArgs } else { winget list } } else { if ($RemainingArgs) { winget list $Name @RemainingArgs } else { winget list $Name } }
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "[Chocolatey] Installed Packages..." -ForegroundColor Yellow
+                if ($Name -eq "") { if ($RemainingArgs) { choco list @RemainingArgs } else { choco list } } else { if ($RemainingArgs) { choco list $Name @RemainingArgs } else { choco list $Name } }
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "[Scoop] Installed Packages..." -ForegroundColor Green
                 scoop list
             }
         }
-        break
     }
     "info" {
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Host "⚠️ Please specify a package name." -ForegroundColor Red
+        if ($Name -eq "") {
+            Write-Host "Please specify a package name." -ForegroundColor Red
             return
         }
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "`nℹ️ [WinGet] Info for '$Name'..." -ForegroundColor Cyan
+                Write-Host "[WinGet] Info for '$Name'..." -ForegroundColor Cyan
                 if ($RemainingArgs) { winget show $Name @RemainingArgs } else { winget show $Name }
-            } elseif ($pm -eq "choco") {
-                Write-Host "`nℹ️ [Chocolatey] Info for '$Name'..." -ForegroundColor Yellow
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "[Chocolatey] Info for '$Name'..." -ForegroundColor Yellow
                 if ($RemainingArgs) { choco info $Name @RemainingArgs } else { choco info $Name }
-            } elseif ($pm -eq "scoop") {
-                Write-Host "`nℹ️ [Scoop] Info for '$Name'..." -ForegroundColor Green
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "[Scoop] Info for '$Name'..." -ForegroundColor Green
                 if ($RemainingArgs) { scoop info $Name @RemainingArgs } else { scoop info $Name }
             }
         }
-        break
     }
     default {
         $success = $false
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
-                Write-Host "🚀 Running '$Action' via WinGet..." -ForegroundColor Cyan
-                if ([string]::IsNullOrWhiteSpace($Name)) { if ($wgFlags) { winget $actionLower @wgFlags } else { winget $actionLower } } else { if ($wgFlags) { winget $actionLower $Name @wgFlags } else { winget $actionLower $Name } }
+                Write-Host "Running '$Action' via WinGet..." -ForegroundColor Cyan
+                if ($Name -eq "") { if ($wgFlags) { winget $actionLower @wgFlags } else { winget $actionLower } } else { if ($wgFlags) { winget $actionLower $Name @wgFlags } else { winget $actionLower $Name } }
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
-            } elseif ($pm -eq "choco") {
-                Write-Host "🍫 Running '$Action' via Chocolatey..." -ForegroundColor Yellow
-                if ([string]::IsNullOrWhiteSpace($Name)) { if ($chFlags) { "y" | choco $actionLower @chFlags } else { "y" | choco $actionLower } } else { if ($chFlags) { "y" | choco $actionLower $Name @chFlags } else { "y" | choco $actionLower $Name } }
+            }
+            elseif ($pm -eq "choco") {
+                Write-Host "Running '$Action' via Chocolatey..." -ForegroundColor Yellow
+                if ($Name -eq "") { if ($chFlags) { "y" | choco $actionLower @chFlags } else { "y" | choco $actionLower } } else { if ($chFlags) { "y" | choco $actionLower $Name @chFlags } else { "y" | choco $actionLower $Name } }
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
-            } elseif ($pm -eq "scoop") {
-                Write-Host "🥄 Running '$Action' via Scoop..." -ForegroundColor Green
-                if ([string]::IsNullOrWhiteSpace($Name)) { if ($scFlags) { scoop $actionLower @scFlags } else { scoop $actionLower } } else { if ($scFlags) { scoop $actionLower $Name @scFlags } else { scoop $actionLower $Name } }
+            }
+            elseif ($pm -eq "scoop") {
+                Write-Host "Running '$Action' via Scoop..." -ForegroundColor Green
+                if ($Name -eq "") { if ($scFlags) { scoop $actionLower @scFlags } else { scoop $actionLower } } else { if ($scFlags) { scoop $actionLower $Name @scFlags } else { scoop $actionLower $Name } }
                 if ($LASTEXITCODE -eq 0 -or $?) { $success = $true; break }
             }
         }
         if (-not $success) {
-            Write-Host "❌ Command failed across all package managers or is unsupported." -ForegroundColor Red
+            Write-Host "Command failed across all package managers or is unsupported." -ForegroundColor Red
         }
-        break
     }
 }
