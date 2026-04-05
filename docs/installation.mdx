@@ -1,0 +1,380 @@
+---
+title: "Installing OmniGet"
+description: "A complete guide to installing OmniGet — the universal Windows package manager wrapper — via Chocolatey, WinGet, or manually."
+---
+
+import { Callout, Steps, Tabs, Tab, Code } from '@/components'
+
+# Installing OmniGet
+
+**OmniGet** is a universal PowerShell wrapper that provides a single, unified CLI
+(`omniget`) for managing packages across **WinGet**, **Chocolatey**, and **Scoop** —
+all from one command.
+
+---
+
+## Prerequisites
+
+Before installing OmniGet, you need at least **one** of the following Windows package
+managers installed on your system:
+
+| Package Manager | How to Get It |
+|---|---|
+| **WinGet** | Pre-installed on Windows 10 (21H2+) and Windows 11. [Learn more →](https://learn.microsoft.com/en-us/windows/package-manager/winget/) |
+| **Chocolatey** | [Install from chocolatey.org →](https://chocolatey.org/install) |
+| **Scoop** | [Install from scoop.sh →](https://scoop.sh/) |
+
+OmniGet safely skips any manager that isn't installed, so you don't need all three.
+
+---
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="Chocolatey">
+
+## Install via Chocolatey
+
+> Requires Chocolatey to be installed. Run the command below in an **elevated
+> (Administrator) PowerShell or Command Prompt**.
+
+```powershell
+choco install nexus-omniget
+```
+
+### What This Does
+
+The Chocolatey package (`nexus-omniget`) installs two files into your Chocolatey
+`tools` directory, which is already on your system `PATH`:
+
+- `OmniGet.ps1` — The main PowerShell script.
+- `omniget.cmd` — A thin CMD launcher so `omniget` works from **any** terminal
+  (PowerShell, CMD, Windows Terminal, etc.) without needing to type `pwsh` first.
+
+### Verifying the Installation
+
+Open a **new** terminal (PowerShell or CMD) and run:
+
+```powershell
+omniget --version
+```
+
+You should see output similar to:
+
+```
+OmniGet v1.0.0
+WinGet: v1.9.2501
+Scoop: 0.5.3
+```
+
+### Upgrading OmniGet
+
+```powershell
+choco upgrade nexus-omniget
+```
+
+### Uninstalling OmniGet
+
+```powershell
+choco uninstall nexus-omniget
+```
+
+  </Tab>
+  <Tab title="WinGet">
+
+## Install via WinGet
+
+> WinGet is pre-installed on modern Windows 10 and Windows 11. Run the command
+> below in any terminal.
+
+```powershell
+winget install Pranav-Nexus.OmniGet
+```
+
+### What This Does
+
+WinGet downloads the OmniGet installer and places the script and CMD launcher into a
+directory that is automatically added to your system `PATH`, making the `omniget`
+command available globally.
+
+### Verifying the Installation
+
+Open a **new** terminal and run:
+
+```powershell
+omniget --version
+```
+
+You should see output like:
+
+```
+OmniGet v1.0.0
+WinGet: v1.9.2501
+```
+
+### Upgrading OmniGet
+
+```powershell
+winget upgrade Pranav-Nexus.OmniGet
+```
+
+### Uninstalling OmniGet
+
+```powershell
+winget uninstall Pranav-Nexus.OmniGet
+```
+
+  </Tab>
+  <Tab title="Manual">
+
+## Manual Installation
+
+Choose one of the three manual setup methods below.
+
+### Option A — Add to System PATH (Recommended)
+
+This is the cleanest approach. It keeps OmniGet self-contained and makes `omniget`
+available from any terminal.
+
+<Steps>
+
+### Download the Files
+
+Clone the repository or download the files directly:
+
+```powershell
+git clone https://github.com/Pranav-Nexus/omniget.git C:\Tools\OmniGet
+```
+
+Or download `OmniGet.ps1` and `omniget.cmd` manually from the
+[GitHub releases page](https://github.com/Pranav-Nexus/omniget/releases).
+
+### Add to PATH
+
+Add the folder containing the files to your Windows `PATH` environment variable:
+
+```powershell
+# Permanently adds the folder to your user PATH
+$folderPath = "C:\Tools\OmniGet"
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$currentPath;$folderPath", "User")
+```
+
+Restart your terminal after running this.
+
+### Verify
+
+```powershell
+omniget --version
+```
+
+</Steps>
+
+---
+
+### Option B — Edit your PowerShell Profile
+
+This embeds OmniGet directly into your PowerShell session.
+
+<Steps>
+
+### Open Your Profile
+
+```powershell
+notepad $PROFILE
+```
+
+### Paste the Script
+
+Copy the full contents of `OmniGet.ps1` and paste them at the **very bottom** of
+your profile file. Save and close Notepad.
+
+### Restart PowerShell
+
+Close and reopen your terminal. `omniget` will now be available in every PowerShell
+session.
+
+</Steps>
+
+---
+
+### Option C — Dot-Source the Script
+
+Keep `OmniGet.ps1` anywhere on your machine and load it on demand.
+
+```powershell
+# Add this line to your $PROFILE to load it automatically every session:
+. "C:\Path\To\OmniGet\OmniGet.ps1"
+```
+
+  </Tab>
+</Tabs>
+
+---
+
+## First-Run Configuration
+
+The first time you run any `omniget` command after installation, OmniGet will launch
+an interactive **Priority Wizard** to set your package manager preference order:
+
+```
+Welcome to OmniGet First Run / Config!
+Let's set your package manager priority order.
+
+Available to select: winget, scoop, choco
+Which one should be priority 1? (type name): winget
+Which one should be priority 2? (type name): scoop
+Which one should be priority 3? (type name): choco
+
+Priority saved!
+```
+
+Your priority order is saved to `~\.omniget_config.json`. You can re-run this
+wizard at any time with:
+
+```powershell
+omniget priority
+```
+
+---
+
+## Post-Installation Usage
+
+Once installed, `omniget` is your single command for everything:
+
+```powershell
+# Install a package (cascades through WinGet → Scoop → Choco automatically)
+omniget install nodejs
+
+# Install a specific version
+omniget install vlc --version 3.0.0
+
+# Update a single package
+omniget upgrade git
+
+# Update ALL packages across ALL installed managers
+omniget upgrade all
+
+# Search across all registries at once
+omniget search powertoys
+
+# List ALL installed packages across all managers
+omniget list
+
+# Remove a package (finds it in whatever manager installed it)
+omniget uninstall python
+
+# Show info / metadata about a package
+omniget info firefox
+
+# Run the conflict doctor to find duplicates across managers
+omniget doctor
+
+# Re-configure your package manager priority order
+omniget priority
+
+# Show OmniGet and package manager versions
+omniget --version
+
+# Print the help menu
+omniget --help
+```
+
+---
+
+## Command Reference
+
+| Command | Description |
+|---|---|
+| `install <name>` | Installs a package, cascading through managers by priority |
+| `upgrade <name>` | Upgrades a specific package in the manager that owns it |
+| `upgrade all` | Runs upgrade across **all** installed package managers |
+| `uninstall <name>` | Removes a package from whichever manager installed it |
+| `search <name>` | Searches all configured package managers simultaneously |
+| `list` | Lists installed packages across all managers |
+| `info <name>` | Shows package metadata from all managers |
+| `doctor` | Scans for packages duplicated across multiple managers |
+| `priority` | Re-runs the interactive priority configuration wizard |
+| `--version` / `-v` | Shows OmniGet and package manager versions |
+| `--help` / `-?` | Shows the help menu |
+
+### Flag Passthrough
+
+Any extra flags you append are transparently forwarded to the underlying package
+manager. For example:
+
+```powershell
+# --version flag is passed through to winget install
+omniget install nodejs --version 22.0.0
+
+# --source flag is forwarded to winget
+omniget search git --source winget
+```
+
+---
+
+## Intelligent Features
+
+### Cascading Fallback
+
+When you run `omniget install <name>`, OmniGet tries each package manager in your
+configured priority order and **stops at the first success**. If WinGet can't find
+the package, it automatically tries Scoop, then Chocolatey.
+
+### Intelligent Pinning
+
+If a package is installed via Chocolatey but WinGet is also present, OmniGet
+automatically **pins the package in WinGet** to prevent WinGet from trying to
+manage or upgrade it later — avoiding version conflicts. When you uninstall via
+Chocolatey, the WinGet pin is automatically removed.
+
+### WSL Fallback
+
+If a package cannot be found in any Windows package manager, OmniGet detects your
+WSL distributions and offers to install the package inside Linux using the
+appropriate package manager (`apt-get`, `pacman`, `dnf`, or `zypper`).
+
+### Conflict Doctor
+
+The `omniget doctor` command compares your Chocolatey-installed packages against
+the WinGet registry, identifies duplicates, and interactively prompts you to
+resolve each conflict by removing from one manager.
+
+---
+
+## Troubleshooting
+
+<Callout type="warning">
+**Execution Policy Errors**
+
+If you see a script execution error, your PowerShell execution policy may be
+blocking unsigned scripts. Run:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+</Callout>
+
+<Callout type="info">
+**`omniget` Not Found After Installation**
+
+Close and reopen your terminal after installation. Changes to `PATH` only take
+effect in new terminal sessions.
+</Callout>
+
+<Callout type="info">
+**Priority Config Not Found / Reset**
+
+If your priority config is lost or corrupted, just run `omniget priority` to
+redo the wizard. The config is stored at `~\.omniget_config.json`.
+</Callout>
+
+---
+
+## Links
+
+- 🏠 [GitHub Repository](https://github.com/Pranav-Nexus/omniget)
+- 🐛 [Report an Issue](https://github.com/Pranav-Nexus/omniget/issues)
+- 📜 [License (MIT)](https://github.com/Pranav-Nexus/omniget/blob/main/LICENSE)
+- 🍫 [Chocolatey Package](https://community.chocolatey.org/packages/nexus-omniget)
+- 📦 [WinGet Package](https://winstall.app/apps/Pranav-Nexus.OmniGet)
