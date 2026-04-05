@@ -1,0 +1,14 @@
+# Local junk / temp directories - never commit these
+junk/
+pr-fix/
+fresh-manifest/
+manifest/
+temp-winget/
+
+# Build artifacts
+*.zip
+*.nupkg
+*.exe
+
+# Logs
+log*.txt
