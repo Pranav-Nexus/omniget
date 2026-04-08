@@ -95,9 +95,11 @@ if ($actionLower -eq "" -or $actionLower -in @("-?", "--help", "help") -or $Rema
     return
 }
 
-# Map aliases
-if ($actionLower -eq "update") { $actionLower = "upgrade" }
-if ($actionLower -eq "remove") { $actionLower = "uninstall" }
+# Normalize aliases — OmniGet shorthands + WinGet built-in command aliases
+if ($actionLower -eq "update")  { $actionLower = "upgrade" }
+if ($actionLower -eq "remove")  { $actionLower = "uninstall" }
+if ($actionLower -eq "view")    { $actionLower = "show" }    # WinGet alias for 'show'
+if ($actionLower -eq "find")    { $actionLower = "search" }  # WinGet alias for 'search'
 
 # Handle 'update all'
 if ($actionLower -eq "upgrade" -and ($Name -ieq "all" -or $RemainingArgs -contains "--all" -or $RemainingArgs -contains "-all")) {
@@ -433,26 +435,90 @@ switch ($actionLower) {
         }
     }
     default {
+        # Translation maps: WinGet command -> Chocolatey/Scoop equivalent ($null = no equivalent, skip gracefully)
+        # ─── Chocolatey command translation map ────────────────────────────────
+        # Keys: WinGet/OmniGet command  |  Value: Choco equivalent ($null = skip)
+        $chocoCommandMap = @{
+            # Shared commands with different names
+            "show"      = "info"        # winget show     → choco info
+            "settings"  = "config"      # winget settings → choco config
+            "features"  = "feature"     # winget features → choco feature
+            # Shared commands — same name in choco (listed for clarity)
+            "source"    = "source"
+            "pin"       = "pin"
+            "export"    = "export"
+            "download"  = "download"
+            # Choco-native commands — pass straight through (not in map = pass-as-is)
+            # "apikey", "new", "pack", "push", "template" → handled by else { $actionLower }
+            # WinGet-only — no Chocolatey equivalent, skip gracefully
+            "hash"      = $null
+            "validate"  = $null
+            "import"    = $null
+            "repair"    = $null
+            "configure" = $null
+            "dscv3"     = $null
+            "mcp"       = $null
+        }
+
+        # ─── Scoop command translation map ──────────────────────────────────────
+        # Keys: WinGet/OmniGet command  |  Value: Scoop equivalent ($null = skip)
+        $scoopCommandMap = @{
+            # Shared commands with different names
+            "show"      = "info"        # winget show     → scoop info
+            "source"    = "bucket"      # winget source   → scoop bucket
+            "pin"       = "hold"        # winget pin      → scoop hold
+            "settings"  = "config"      # winget settings → scoop config
+            # Shared commands — same name in scoop (listed for clarity)
+            "export"    = "export"
+            "import"    = "import"
+            # Scoop-native commands — pass straight through (not in map = pass-as-is)
+            # "bucket", "cache", "checkup", "cleanup", "home", "hold",
+            # "unhold", "status", "cat", "prefix", "alias", "shim",
+            # "virustotal" → handled by else { $actionLower }
+            # WinGet-only — no Scoop equivalent, skip gracefully
+            "hash"      = $null
+            "validate"  = $null
+            "repair"    = $null
+            "configure" = $null
+            "dscv3"     = $null
+            "mcp"       = $null
+            "download"  = $null         # scoop has no direct download command
+            "features"  = $null
+        }
+
         $success = $false
         foreach ($pm in $activePriority) {
             if ($pm -eq "winget") {
                 Write-Host "Running '$Action' via WinGet..." -ForegroundColor Cyan
-                if ($Name -eq "") { if ($wgFlags) { winget $actionLower @wgFlags } else { winget $actionLower } } else { if ($wgFlags) { winget $actionLower $Name @wgFlags } else { winget $actionLower $Name } }
+                # Only pass user-supplied flags here — NOT the auto-injected install flags
+                if ($Name -eq "") { if ($RemainingArgs) { winget $actionLower @RemainingArgs } else { winget $actionLower } } else { if ($RemainingArgs) { winget $actionLower $Name @RemainingArgs } else { winget $actionLower $Name } }
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
             }
             elseif ($pm -eq "choco") {
-                Write-Host "Running '$Action' via Chocolatey..." -ForegroundColor Yellow
-                if ($Name -eq "") { if ($chFlags) { "y" | choco $actionLower @chFlags } else { "y" | choco $actionLower } } else { if ($chFlags) { "y" | choco $actionLower $Name @chFlags } else { "y" | choco $actionLower $Name } }
+                $chocoCmd = if ($chocoCommandMap.ContainsKey($actionLower)) { $chocoCommandMap[$actionLower] } else { $actionLower }
+                if ($null -eq $chocoCmd) {
+                    Write-Host "[Chocolatey] No equivalent for '$Action'. Skipping." -ForegroundColor DarkGray
+                    continue
+                }
+                if ($chocoCmd -ne $actionLower) { Write-Host "[Chocolatey] Mapping '$Action' -> '$chocoCmd'..." -ForegroundColor DarkGray }
+                Write-Host "Running '$chocoCmd' via Chocolatey..." -ForegroundColor Yellow
+                if ($Name -eq "") { if ($RemainingArgs) { choco $chocoCmd @RemainingArgs } else { choco $chocoCmd } } else { if ($RemainingArgs) { choco $chocoCmd $Name @RemainingArgs } else { choco $chocoCmd $Name } }
                 if ($LASTEXITCODE -eq 0) { $success = $true; break }
             }
             elseif ($pm -eq "scoop") {
-                Write-Host "Running '$Action' via Scoop..." -ForegroundColor Green
-                if ($Name -eq "") { if ($scFlags) { scoop $actionLower @scFlags } else { scoop $actionLower } } else { if ($scFlags) { scoop $actionLower $Name @scFlags } else { scoop $actionLower $Name } }
+                $scoopCmd = if ($scoopCommandMap.ContainsKey($actionLower)) { $scoopCommandMap[$actionLower] } else { $actionLower }
+                if ($null -eq $scoopCmd) {
+                    Write-Host "[Scoop] No equivalent for '$Action'. Skipping." -ForegroundColor DarkGray
+                    continue
+                }
+                if ($scoopCmd -ne $actionLower) { Write-Host "[Scoop] Mapping '$Action' -> '$scoopCmd'..." -ForegroundColor DarkGray }
+                Write-Host "Running '$scoopCmd' via Scoop..." -ForegroundColor Green
+                if ($Name -eq "") { if ($RemainingArgs) { scoop $scoopCmd @RemainingArgs } else { scoop $scoopCmd } } else { if ($RemainingArgs) { scoop $scoopCmd $Name @RemainingArgs } else { scoop $scoopCmd $Name } }
                 if ($LASTEXITCODE -eq 0 -or $?) { $success = $true; break }
             }
         }
         if (-not $success) {
-            Write-Host "Command failed across all package managers or is unsupported." -ForegroundColor Red
+            Write-Host "Command '$Action' failed or has no equivalent across all configured package managers." -ForegroundColor Red
         }
     }
 }

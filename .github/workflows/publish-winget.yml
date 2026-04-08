@@ -20,25 +20,17 @@ jobs:
           # Package the raw script + cmd shim directly — no compilation needed.
           # ps2exe-compiled EXEs are flagged by Defender (Trojan:Win32/Sprisky.U!cl)
           # because the generic ps2exe stub binary matches a heuristic malware pattern.
-          # A plain .ps1 + .cmd shim zip is transparent, signable, and Defender-safe.
+          # A plain .ps1 + .cmd shim zip is transparent and Defender-safe.
           Compress-Archive -Path OmniGet.ps1, omniget.cmd -DestinationPath omniget.zip
 
       - name: Upload Release Asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.event.release.tag_name }} omniget.zip
+        run: gh release upload ${{ github.event.release.tag_name }} omniget.zip --clobber
 
       - name: Submit to WinGet
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: Nexus.OmniGet
           installers-regex: '\.zip$'
-          nested-installer-type: portable
-          nested-installer-files: |
-            [
-              {
-                "RelativeFilePath": "omniget.cmd",
-                "PortableCommandAlias": "omniget"
-              }
-            ]
           token: ${{ secrets.WINGET_TOKEN }}
