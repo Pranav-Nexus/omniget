@@ -14,14 +14,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create Portable Zip
+      - name: Compile Clean Wrapper and Create Portable Zip
         shell: pwsh
         run: |
-          # Package the raw script + cmd shim directly — no compilation needed.
-          # ps2exe-compiled EXEs are flagged by Defender (Trojan:Win32/Sprisky.U!cl)
-          # because the generic ps2exe stub binary matches a heuristic malware pattern.
-          # A plain .ps1 + .cmd shim zip is transparent and Defender-safe.
-          Compress-Archive -Path OmniGet.ps1, omniget.cmd -DestinationPath omniget.zip
+          # Create a minimal C# wrapper to launch the PowerShell script.
+          # This replaces ps2exe and inherently avoids the Sprisky.U!cl false positive,
+          # while still satisfying WinGet's requirement for an .exe RelativeFilePath.
+          $code = @"
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          class Program {
+              static int Main(string[] args) {
+                  string scriptDir = AppDomain.CurrentDomain.BaseDirectory;
+                  string ps1Path = Path.Combine(scriptDir, "OmniGet.ps1");
+                  var psi = new ProcessStartInfo {
+                      FileName = "powershell.exe",
+                      Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"\"" + ps1Path + "\"\" " + string.Join(" ", args),
+                      UseShellExecute = false
+                  };
+                  var p = Process.Start(psi);
+                  p.WaitForExit();
+                  return p.ExitCode;
+              }
+          }
+          "@
+          Set-Content -Path "wrapper.cs" -Value $code
+          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:omniget.exe wrapper.cs
+          
+          Compress-Archive -Path omniget.exe, OmniGet.ps1 -DestinationPath omniget.zip
 
       - name: Upload Release Asset
         env:
