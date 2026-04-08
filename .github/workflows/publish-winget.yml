@@ -14,14 +14,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Compile to EXE
+      - name: Create Portable Zip
         shell: pwsh
         run: |
-          Install-Module ps2exe -Force -Scope CurrentUser -AcceptLicense
-          Invoke-ps2exe .\OmniGet.ps1 .\omniget.exe -noConsole
-
-      - name: Create Portable Zip
-        run: Compress-Archive -Path omniget.exe -DestinationPath omniget.zip
+          # Package the raw script + cmd shim directly — no compilation needed.
+          # ps2exe-compiled EXEs are flagged by Defender (Trojan:Win32/Sprisky.U!cl)
+          # because the generic ps2exe stub binary matches a heuristic malware pattern.
+          # A plain .ps1 + .cmd shim zip is transparent, signable, and Defender-safe.
+          Compress-Archive -Path OmniGet.ps1, omniget.cmd -DestinationPath omniget.zip
 
       - name: Upload Release Asset
         env:
@@ -33,4 +33,12 @@ jobs:
         with:
           identifier: Nexus.OmniGet
           installers-regex: '\.zip$'
+          nested-installer-type: portable
+          nested-installer-files: |
+            [
+              {
+                "RelativeFilePath": "omniget.cmd",
+                "PortableCommandAlias": "omniget"
+              }
+            ]
           token: ${{ secrets.WINGET_TOKEN }}
