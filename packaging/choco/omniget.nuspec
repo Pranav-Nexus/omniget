@@ -3,7 +3,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>nexus-omniget</id>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <title>OmniGet (Portable)</title>
     <authors>Pranav-Nexus</authors>
     <projectUrl>https://github.com/Pranav-Nexus/omniget</projectUrl>
@@ -24,7 +24,6 @@
   </metadata>
   <files>
     <!-- this section controls what actually gets packaged into the Chocolatey package -->
-    <file src="..\..\omniget.cmd" target="tools" />
-    <file src="..\..\OmniGet.ps1" target="tools" />
+    <file src="..\..\omniget.exe" target="tools" />
   </files>
 </package>

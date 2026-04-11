@@ -16,6 +16,7 @@ jobs:
 
       - name: Pack OmniGet Chocolatey Package
         run: |
+          ./build.ps1
           cd packaging/choco
           choco pack omniget.nuspec
 
