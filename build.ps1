@@ -58,6 +58,87 @@ $exitCode = $LASTEXITCODE
 if ($exitCode -eq 0) {
     Write-Host "Success! omniget.exe generated." -ForegroundColor Green
     Remove-Item $csPath -ErrorAction SilentlyContinue
+    
+    Write-Host "Bundling into OmniGetSetup.exe..." -ForegroundColor Cyan
+    $exeContent = Get-Content -Path "omniget.exe" -Encoding Byte -Raw
+    $base64Exe = [Convert]::ToBase64String($exeContent)
+    
+    $setupCsCode = @"
+using System;
+using System.IO;
+using System.Windows.Forms;
+using Microsoft.Win32;
+
+namespace OmniGetInstaller {
+    public class Program {
+        [STAThread]
+        public static void Main() {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            
+            DialogResult result = MessageBox.Show(
+                "Do you want to install OmniGet to your system?",
+                "OmniGet Setup",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            
+            if (result == DialogResult.Yes) {
+                try {
+                    Install();
+                    MessageBox.Show(
+                        "OmniGet installed successfully!\n\nPlease restart your terminal to use the 'omniget' command.",
+                        "Success",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                } catch (Exception ex) {
+                    MessageBox.Show("Installation failed:\n" + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+        
+        static void Install() {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string installDir = Path.Combine(localAppData, "OmniGet");
+            if (!Directory.Exists(installDir)) {
+                Directory.CreateDirectory(installDir);
+            }
+            
+            string exePath = Path.Combine(installDir, "omniget.exe");
+            string b64 = "$base64Exe";
+            byte[] exeBytes = Convert.FromBase64String(b64);
+            File.WriteAllBytes(exePath, exeBytes);
+            
+            // Add to User PATH
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
+                if (key != null) {
+                    string path = key.GetValue("PATH") as string;
+                    if (path == null) path = "";
+                    
+                    if (!path.Contains(installDir)) {
+                        if (!path.EndsWith(";") && path.Length > 0) path += ";";
+                        path += installDir;
+                        key.SetValue("PATH", path, RegistryValueKind.ExpandString);
+                    }
+                }
+            }
+        }
+    }
+}
+"@
+    $setupCsPath = Join-Path $PSScriptRoot "setup.cs"
+    Set-Content -Path $setupCsPath -Value $setupCsCode -Encoding UTF8
+    
+    & $cscPath /nologo /target:winexe /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $setupCsPath
+    $exitCodeSetup = $LASTEXITCODE
+    if ($exitCodeSetup -eq 0) {
+        Write-Host "Success! OmniGetSetup.exe generated." -ForegroundColor Green
+        Remove-Item $setupCsPath -ErrorAction SilentlyContinue
+    } else {
+        Write-Error "Setup compilation failed."
+        exit $exitCodeSetup
+    }
 } else {
     Write-Error "Compilation failed."
 }
