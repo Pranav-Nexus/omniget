@@ -352,6 +352,15 @@ switch ($actionLower) {
             Write-Host "Please specify a package name to uninstall." -ForegroundColor Red
             return
         }
+        if ($Name.ToLower() -eq "omniget" -or $Name.ToLower() -eq "nexus-omniget" -or $Name.ToLower() -eq "nexus.omniget") {
+            $uninstPath = Join-Path $env:LOCALAPPDATA "OmniGet\OmniGetUninstall.exe"
+            if (Test-Path $uninstPath) {
+                Write-Host "Launching Native OmniGet Uninstaller..." -ForegroundColor Cyan
+                Start-Process -FilePath $uninstPath -NoNewWindow -Wait
+                return
+            }
+        }
+
         $success = $false
         foreach ($pm in $activePriority) {
             if ($pm -eq "choco" -and (choco list | Select-String -Pattern "^\s*$([regex]::Escape($Name))\s" -Quiet)) {

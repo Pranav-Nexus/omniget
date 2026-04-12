@@ -281,5 +281,4 @@ if ($LASTEXITCODE -eq 0) {
     exit 1
 }
 
-Remove-Item "OmniGetUninstall.exe" -ErrorAction SilentlyContinue
 exit 0
