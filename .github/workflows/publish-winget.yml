@@ -14,22 +14,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Compile Portable Executable
+      - name: Compile Executables
         shell: pwsh
-        run: |
-          ./build.ps1
-          Compress-Archive -Path omniget.exe -DestinationPath omniget.zip
+        run: ./build.ps1
 
       - name: Upload Release Asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.event.release.tag_name }} omniget.zip --clobber
           gh release upload ${{ github.event.release.tag_name }} OmniGetSetup.exe --clobber
 
       - name: Submit to WinGet
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: Nexus.OmniGet
-          installers-regex: '\.zip$'
+          installers-regex: 'OmniGetSetup\.exe$'
           token: ${{ secrets.WINGET_TOKEN }}

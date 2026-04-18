@@ -136,6 +136,7 @@ $base64Uninst = [Convert]::ToBase64String($uninstContent)
 $setupCsCode = @"
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using System.Drawing;
 using Microsoft.Win32;
@@ -151,7 +152,7 @@ namespace OmniGetInstaller {
         private Button btnNext, btnBack, btnCancel;
         private int currentStep = 0;
 
-        private bool CommandExists(string command) {
+        private static bool CommandExists(string command) {
             string pathEnv = Environment.GetEnvironmentVariable("PATH");
             if (string.IsNullOrEmpty(pathEnv)) return false;
             foreach (var dir in pathEnv.Split(';')) {
@@ -161,6 +162,53 @@ namespace OmniGetInstaller {
                 } catch { }
             }
             return false;
+        }
+
+        private static void SilentInstall() {
+            // Auto-detect installed package managers
+            var priority = new List<string>();
+            if (CommandExists("winget")) priority.Add("winget");
+            if (CommandExists("choco"))  priority.Add("choco");
+            if (CommandExists("scoop"))  priority.Add("scoop");
+            if (priority.Count == 0)     priority.Add("winget"); // Fallback
+
+            // Write ~/.omniget_config.json
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string configPath  = Path.Combine(userProfile, ".omniget_config.json");
+            string json = "{ \"priority\": [";
+            for (int i = 0; i < priority.Count; i++) {
+                json += "\"" + priority[i] + "\"";
+                if (i < priority.Count - 1) json += ", ";
+            }
+            json += "] }";
+            File.WriteAllText(configPath, json);
+
+            // Deploy executables to %LOCALAPPDATA%\OmniGet
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string installDir   = Path.Combine(localAppData, "OmniGet");
+            if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
+
+            string b64Exe = "$base64Exe";
+            File.WriteAllBytes(Path.Combine(installDir, "omniget.exe"), Convert.FromBase64String(b64Exe));
+
+            string b64Uninst = "$base64Uninst";
+            File.WriteAllBytes(Path.Combine(installDir, "OmniGetUninstall.exe"), Convert.FromBase64String(b64Uninst));
+
+            // Add install directory to HKCU PATH
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
+                if (key != null) {
+                    string path = key.GetValue("PATH") as string ?? "";
+                    if (!path.Contains(installDir)) {
+                        if (!path.EndsWith(";") && path.Length > 0) path += ";";
+                        path += installDir;
+                        key.SetValue("PATH", path, RegistryValueKind.ExpandString);
+                    }
+                }
+            }
+
+            // Broadcast WM_SETTINGCHANGE so PATH is picked up without reboot
+            IntPtr res;
+            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
         }
 
         public SetupWizard() {
@@ -336,10 +384,24 @@ namespace OmniGetInstaller {
         }
 
         [STAThread]
-        public static void Main() {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new SetupWizard());
+        public static void Main(string[] args) {
+            bool silent = false;
+            foreach (var a in args) {
+                if (a.Equals("/S", StringComparison.OrdinalIgnoreCase) ||
+                    a.Equals("--silent", StringComparison.OrdinalIgnoreCase) ||
+                    a.Equals("-s", StringComparison.OrdinalIgnoreCase)) {
+                    silent = true;
+                    break;
+                }
+            }
+            if (silent) {
+                try   { SilentInstall(); Environment.Exit(0); }
+                catch { Environment.Exit(1); }
+            } else {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new SetupWizard());
+            }
         }
     }
 }
