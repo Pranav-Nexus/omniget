@@ -1,4 +1,4 @@
-﻿<#
+<#
     .SYNOPSIS
     A universal wrapper for Windows package managers (WinGet, Chocolatey, Scoop).
 
@@ -75,7 +75,7 @@ function Show-Help {
 }
 
 $actionLower = $Action.ToLower().Trim()
-$OmniGetVersion = "v1.1.0"
+$OmniGetVersion = "v1.1.1"
 
 # Commands that act like global flags
 if ($actionLower -in @("-v", "--version") -or $RemainingArgs -contains "-v" -or $RemainingArgs -contains "--version") {
