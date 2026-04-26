@@ -28,13 +28,18 @@ jobs:
         run: |
           $file = "OmniGet.ps1"
           $content = Get-Content $file -Raw
-          # Use GitHub Run Number as the patch version (e.g., 1.0.1, 1.0.2)
-          $newVersion = "v1.0.${{ github.run_number }}"
-          $updated = $content -replace '\$OmniGetVersion = "v[0-9]+\.[0-9]+\.[0-9]+"', "`$OmniGetVersion = `"$newVersion`""
-          Set-Content -Path $file -Value $updated -NoNewline
-          Write-Output "Bumped version to $newVersion"
-          # Set for next steps
-          echo "VERSION=$newVersion" >> $env:GITHUB_ENV
+          if ($content -match '\$OmniGetVersion = "(v\d+\.\d+\.)(\d+)"') {
+              $base = $matches[1]
+              $patch = [int]$matches[2] + 1
+              $newVersion = "$base$patch"
+              $updated = $content -replace '\$OmniGetVersion = "v\d+\.\d+\.\d+"', "`$OmniGetVersion = `"$newVersion`""
+              Set-Content -Path $file -Value $updated -NoNewline
+              Write-Output "Bumped version to $newVersion"
+              echo "VERSION=$newVersion" >> $env:GITHUB_ENV
+          } else {
+              Write-Error "Could not find valid version string in $file"
+              exit 1
+          }
 
       - name: Commit Version Bump
         uses: stefanzweifel/git-auto-commit-action@v5
