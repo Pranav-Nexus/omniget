@@ -1,0 +1,59 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - 'DOCS.md'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump Version in Script
+        id: versioning
+        shell: pwsh
+        run: |
+          $file = "OmniGet.ps1"
+          $content = Get-Content $file -Raw
+          # Use GitHub Run Number as the patch version (e.g., 1.0.1, 1.0.2)
+          $newVersion = "v1.0.${{ github.run_number }}"
+          $updated = $content -replace '\$OmniGetVersion = "v[0-9]+\.[0-9]+\.[0-9]+"', "`$OmniGetVersion = `"$newVersion`""
+          Set-Content -Path $file -Value $updated -NoNewline
+          Write-Output "Bumped version to $newVersion"
+          # Set for next steps
+          echo "VERSION=$newVersion" >> $env:GITHUB_ENV
+
+      - name: Commit Version Bump
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: Auto-bump version to ${{ env.VERSION }} [skip ci]"
+          file_pattern: 'OmniGet.ps1'
+
+      - name: Compile Executables
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Create Release and Upload Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ env.VERSION }} OmniGetSetup.exe OmniGetUninstall.exe --title "Release ${{ env.VERSION }}" --generate-notes
+
+      - name: Submit to WinGet
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: Nexus.OmniGet
+          installers-regex: 'OmniGetSetup\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
