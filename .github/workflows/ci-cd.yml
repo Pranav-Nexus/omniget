@@ -57,3 +57,4 @@ jobs:
           identifier: Nexus.OmniGet
           installers-regex: 'OmniGetSetup\.exe$'
           token: ${{ secrets.WINGET_TOKEN }}
+          release-tag: ${{ env.VERSION }}
