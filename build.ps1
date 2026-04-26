@@ -128,9 +128,9 @@ Remove-Item $uninstCsPath -ErrorAction SilentlyContinue
 
 # --- STAGE 3: Build Installer GUI ---
 Write-Host "Bundling into OmniGetSetup.exe..." -ForegroundColor Cyan
-$exeContent = Get-Content -Path "omniget.exe" -Encoding Byte -Raw
+$exeContent = [System.IO.File]::ReadAllBytes("omniget.exe")
 $base64Exe = [Convert]::ToBase64String($exeContent)
-$uninstContent = Get-Content -Path "OmniGetUninstall.exe" -Encoding Byte -Raw
+$uninstContent = [System.IO.File]::ReadAllBytes("OmniGetUninstall.exe")
 $base64Uninst = [Convert]::ToBase64String($uninstContent)
 
 $setupCsCode = @"
