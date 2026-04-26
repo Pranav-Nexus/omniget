@@ -1,0 +1,66 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - 'DOCS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump Version in Script
+        id: versioning
+        shell: pwsh
+        run: |
+          $file = "OmniGet.ps1"
+          $content = Get-Content $file -Raw
+          if ($content -match '\$OmniGetVersion = "(v\d+\.\d+\.)(\d+)"') {
+              $base = $matches[1]
+              $patch = [int]$matches[2] + 1
+              $newVersion = "$base$patch"
+              $updated = $content -replace '\$OmniGetVersion = "v\d+\.\d+\.\d+"', "`$OmniGetVersion = `"$newVersion`""
+              Set-Content -Path $file -Value $updated -NoNewline
+              Write-Output "Bumped version to $newVersion"
+              echo "VERSION=$newVersion" >> $env:GITHUB_ENV
+          } else {
+              Write-Error "Could not find valid version string in $file"
+              exit 1
+          }
+
+      - name: Commit Version Bump
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: Auto-bump version to ${{ env.VERSION }} [skip ci]"
+          file_pattern: 'OmniGet.ps1'
+
+      - name: Compile Executables
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Create Release and Upload Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ env.VERSION }} OmniGetSetup.exe OmniGetUninstall.exe --title "Release ${{ env.VERSION }}" --generate-notes
+
+      - name: Submit to WinGet
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: Nexus.OmniGet
+          installers-regex: 'OmniGetSetup\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
+          release-tag: ${{ env.VERSION }}
