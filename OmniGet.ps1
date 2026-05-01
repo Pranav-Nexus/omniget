@@ -75,7 +75,7 @@ function Show-Help {
 }
 
 $actionLower = $Action.ToLower().Trim()
-$OmniGetVersion = "v1.1.2"
+$OmniGetVersion = "v1.0.0"
 
 # Commands that act like global flags
 if ($actionLower -in @("-v", "--version") -or $RemainingArgs -contains "-v" -or $RemainingArgs -contains "--version") {
