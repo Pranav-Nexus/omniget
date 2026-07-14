@@ -63,7 +63,7 @@ $csPath = Join-Path $PSScriptRoot "wrapper.cs"
 Set-Content -Path $csPath -Value $csCode -Encoding UTF8
 
 Write-Host "Compiling omniget.exe..." -ForegroundColor Cyan
-& $cscPath /nologo /target:exe /win32manifest:$manifestPath /out:omniget.exe $csPath
+& $cscPath /nologo /target:exe /platform:x64 /win32manifest:$manifestPath /out:omniget.exe $csPath
 if ($LASTEXITCODE -ne 0) { Write-Error "Failed building omniget.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
 Remove-Item $csPath -ErrorAction SilentlyContinue
 
@@ -137,7 +137,7 @@ $uninstCsPath = Join-Path $PSScriptRoot "uninst.cs"
 Set-Content -Path $uninstCsPath -Value $uninstCsCode -Encoding UTF8
 
 Write-Host "Compiling OmniGetUninstall.exe..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetUninstall.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $uninstCsPath
+& $cscPath /nologo /target:winexe /platform:x64 /win32manifest:$manifestPath /out:OmniGetUninstall.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $uninstCsPath
 if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetUninstall.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
 Remove-Item $uninstCsPath -ErrorAction SilentlyContinue
 
@@ -434,7 +434,7 @@ namespace OmniGetInstaller {
 $setupCsPath = Join-Path $PSScriptRoot "setup.cs"
 Set-Content -Path $setupCsPath -Value $setupCsCode -Encoding UTF8
 
-& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $setupCsPath
+& $cscPath /nologo /target:winexe /platform:x64 /win32manifest:$manifestPath /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $setupCsPath
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Success! OmniGetSetup.exe generated." -ForegroundColor Green
     Remove-Item $setupCsPath -ErrorAction SilentlyContinue
