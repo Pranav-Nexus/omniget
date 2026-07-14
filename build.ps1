@@ -11,6 +11,22 @@ if (-not (Test-Path $cscPath)) {
 }
 
 # --- STAGE 1: Build omniget.exe ---
+$manifestContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="OmniGetSetup"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>
+"@
+$manifestPath = Join-Path $PSScriptRoot "app.manifest"
+Set-Content -Path $manifestPath -Value $manifestContent -Encoding UTF8
+
 $ps1Content = Get-Content -Path $ps1Path -Raw
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($ps1Content)
 $base64 = [Convert]::ToBase64String($bytes)
@@ -47,8 +63,8 @@ $csPath = Join-Path $PSScriptRoot "wrapper.cs"
 Set-Content -Path $csPath -Value $csCode -Encoding UTF8
 
 Write-Host "Compiling omniget.exe..." -ForegroundColor Cyan
-& $cscPath /nologo /target:exe /out:omniget.exe $csPath
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed building omniget.exe"; exit 1 }
+& $cscPath /nologo /target:exe /win32manifest:$manifestPath /out:omniget.exe $csPath
+if ($LASTEXITCODE -ne 0) { Write-Error "Failed building omniget.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
 Remove-Item $csPath -ErrorAction SilentlyContinue
 
 
@@ -121,8 +137,8 @@ $uninstCsPath = Join-Path $PSScriptRoot "uninst.cs"
 Set-Content -Path $uninstCsPath -Value $uninstCsCode -Encoding UTF8
 
 Write-Host "Compiling OmniGetUninstall.exe..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /out:OmniGetUninstall.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $uninstCsPath
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetUninstall.exe"; exit 1 }
+& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetUninstall.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $uninstCsPath
+if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetUninstall.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
 Remove-Item $uninstCsPath -ErrorAction SilentlyContinue
 
 
@@ -150,6 +166,7 @@ namespace OmniGetInstaller {
         private Panel panelWelcome, panelInfo, panelPriority, panelInstall;
         private ListBox lbPriority;
         private Button btnNext, btnBack, btnCancel;
+        private CheckBox chkUserScope;
         private int currentStep = 0;
 
         private static bool CommandExists(string command) {
@@ -175,12 +192,12 @@ namespace OmniGetInstaller {
             // Write ~/.omniget_config.json
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string configPath  = Path.Combine(userProfile, ".omniget_config.json");
-            string json = "{ \"priority\": [";
+            string json = "{ \"Priority\": [";
             for (int i = 0; i < priority.Count; i++) {
                 json += "\"" + priority[i] + "\"";
                 if (i < priority.Count - 1) json += ", ";
             }
-            json += "] }";
+            json += "], \"UserScopeInstall\": true }";
             File.WriteAllText(configPath, json);
 
             // Deploy executables to %LOCALAPPDATA%\OmniGet
@@ -273,9 +290,17 @@ namespace OmniGetInstaller {
                 }
             };
 
+            chkUserScope = new CheckBox() { 
+                Text = "Enable User-Scope silent installs for WinGet (Bypasses UAC prompts)", 
+                Location = new Point(20, 240), 
+                Size = new Size(440, 20), 
+                Font = new Font("Segoe UI", 9),
+                Checked = true 
+            };
             panelPriority.Controls.Add(lbPriority);
             panelPriority.Controls.Add(btnUp);
             panelPriority.Controls.Add(btnDown);
+            panelPriority.Controls.Add(chkUserScope);
 
             panelInstall = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = false };
             panelInstall.Controls.Add(new Label() { Text = "Ready to Install", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
@@ -331,15 +356,15 @@ namespace OmniGetInstaller {
 
         private void PerformInstall() {
             try {
-                // 1. Write the Config based on ListBox
+                // 1. Write the Config based on ListBox and CheckBox
                 string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 string configPath = Path.Combine(userProfile, ".omniget_config.json");
-                string json = "{ \"priority\": [";
+                string json = "{ \"Priority\": [";
                 for(int i=0; i<lbPriority.Items.Count; i++) {
                     json += "\"" + lbPriority.Items[i].ToString() + "\"";
                     if (i < lbPriority.Items.Count - 1) json += ", ";
                 }
-                json += "] }";
+                json += "], \"UserScopeInstall\": " + chkUserScope.Checked.ToString().ToLower() + " }";
                 File.WriteAllText(configPath, json);
 
                 // 2. Deploy Executables
@@ -409,13 +434,15 @@ namespace OmniGetInstaller {
 $setupCsPath = Join-Path $PSScriptRoot "setup.cs"
 Set-Content -Path $setupCsPath -Value $setupCsCode -Encoding UTF8
 
-& $cscPath /nologo /target:winexe /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $setupCsPath
+& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $setupCsPath
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Success! OmniGetSetup.exe generated." -ForegroundColor Green
     Remove-Item $setupCsPath -ErrorAction SilentlyContinue
 } else {
     Write-Error "Setup compilation failed."
+    Remove-Item $manifestPath -ErrorAction SilentlyContinue
     exit 1
 }
 
+Remove-Item $manifestPath -ErrorAction SilentlyContinue
 exit 0

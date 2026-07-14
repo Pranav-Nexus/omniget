@@ -114,8 +114,32 @@ if ($actionLower -eq "upgrade" -and ($Name -ieq "all" -or $RemainingArgs -contai
     $Name = ""
 }
 
-$wgFlags = @("--silent", "--accept-package-agreements", "--accept-source-agreements")
+# Config file path
+$configFile = Join-Path $env:USERPROFILE ".omniget_config.json"
+$userScopeInstall = $true
+
+# Pre-load UserScopeInstall setting if config exists
+if (Test-Path $configFile) {
+    try {
+        $config = Get-Content $configFile -Raw | ConvertFrom-Json
+        if ($null -ne $config.UserScopeInstall) {
+            $userScopeInstall = [bool]$config.UserScopeInstall
+        }
+    } catch {}
+}
+
+# Admin elevation check
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+$wgFlags = @("--silent", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
+if (-not $isAdmin -and $userScopeInstall) {
+    # If not running as admin and user-scope is configured, target user scope to avoid Windows UAC admin popups
+    $wgFlags += @("--scope", "user")
+}
 $chFlags = @("-y", "--silent")
+if (-not $isAdmin) {
+    $chFlags = @()
+}
 $scFlags = @()
 
 if ($null -ne $RemainingArgs -and $RemainingArgs.Count -gt 0) {
@@ -137,8 +161,6 @@ if ($availablePMs.Count -eq 0) {
 }
 
 # Priority Configuration
-$configFile = Join-Path $env:USERPROFILE ".omniget_config.json"
-
 function Invoke-PriorityWizard {
     Write-Host "`nWelcome to OmniGet Configuration Wizard!" -ForegroundColor Cyan
     Write-Host "Let's set your package manager priority order." -ForegroundColor White
@@ -159,9 +181,23 @@ function Invoke-PriorityWizard {
             Write-Host "Invalid choice. Please type one of the available names." -ForegroundColor Red
         }
     }
-    $configData = @{ "Priority" = $priority }
+
+    # Prompt for user scope installs
+    $userScopeVal = $true
+    $ans = Read-Host "Enable User-Scope silent installs for WinGet (Bypasses UAC prompts)? [Y]es / [N]o (default: Yes)"
+    if ($ans.Trim() -ne "") {
+        if ($ans -match '^[nN]') { $userScopeVal = $false }
+    }
+
+    $configData = @{ 
+        "Priority" = $priority
+        "UserScopeInstall" = $userScopeVal
+    }
     $configData | ConvertTo-Json | Set-Content $configFile -Force
-    Write-Host "Priority saved successfully!" -ForegroundColor Green
+    Write-Host "Priority and settings saved successfully!" -ForegroundColor Green
+    
+    # Update current session variable
+    $script:userScopeInstall = $userScopeVal
     return $priority
 }
 
@@ -172,6 +208,9 @@ if (-not (Test-Path $configFile)) {
     try {
         $config = Get-Content $configFile -Raw | ConvertFrom-Json
         $configPriority = $config.Priority
+        if ($null -ne $config.UserScopeInstall) {
+            $userScopeInstall = [bool]$config.UserScopeInstall
+        }
     } catch {
         if ($actionLower -match "ui|gui|config|help") { $configPriority = $availablePMs } else { $configPriority = Invoke-PriorityWizard }
     }
@@ -212,6 +251,8 @@ switch ($actionLower) {
                 Write-Host "  $i. $pm" -ForegroundColor Yellow
                 $i++
             }
+            $scopeStr = if ($userScopeInstall) { "Enabled (User Scope / No-UAC)" } else { "Disabled (System Scope / UAC prompts allowed)" }
+            Write-Host "User-Scope Silent Installs: $scopeStr" -ForegroundColor White
             Write-Host ""
         }
         elseif ($Name.ToLower() -eq "reset") {
