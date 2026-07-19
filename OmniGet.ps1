@@ -77,7 +77,7 @@ function Show-Help {
 $actionLower = $Action.ToLower().Trim()
 $OmniGetVersion = "v1.0.5"
 
-# Global flags
+# Global flags and parameter options
 if ($actionLower -in @("-v", "--version") -or $RemainingArgs -contains "-v" -or $RemainingArgs -contains "--version") {
     Write-Host "OmniGet $OmniGetVersion" -ForegroundColor Cyan
     if (Get-Command winget -ErrorAction SilentlyContinue) { $wVer = winget --version | Select-Object -First 1; Write-Host "WinGet: $wVer" -ForegroundColor DarkGray }
