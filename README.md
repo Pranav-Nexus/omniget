@@ -4,92 +4,126 @@ A sleek, universal PowerShell wrapper for the three most popular Windows package
 
 Instead of remembering the nuances of three different CLIs, use the `omniget` command to systematically search, install, upgrade, and manage software across your entire ecosystem.
 
+---
+
 ## ✨ Features
+
 * **Universal Operations**: Use standard commands like `install`, `upgrade`, `uninstall`, `search`, and `list` across all managers simultaneously.
-* **Cascading Fallbacks**: Automatically tries to find or install an app using WinGet first. If it fails, it gracefully falls back to Chocolatey, and then to Scoop.
-* **Smart Upgrades**: When running `install` or `upgrade`, it detects which package manager primarily tracks the tool and routes requests to prevent conflicting states.
-* **Safe & Zero-Config**: If a package manager is missing on a workstation, it safely skips it without throwing ugly PowerShell errors.
-* **Chocolatey Automation**: Automatically bypasses the annoying 20-second Chocolatey administrative warning prompt so non-elevated installations can quickly fallback and proceed without interruption.
-* **Argument Passthrough**: Append custom flags like `--version` and they are seamlessly passed down to the underlying tools.
-* **Advanced Routing**: Use `--pm` to force execution to a specific package manager, or `--no-cascade` to strictly target the highest priority tool without fallback.
-* **Interactive TUI**: For those who prefer menus, run `omniget ui` to manage your environment via an elegant Terminal UI using ANSI escape sequences.
-* **Dry-Run Safe Mode**: Use `--dry-run` with destructive operations to see exactly what *would* happen before making modifications.
+* **Cascading Fallbacks**: Automatically search and install apps using WinGet. If it fails, it gracefully falls back to Chocolatey, and then to Scoop.
+* **Smart Upgrades**: When running `install` or `upgrade`, OmniGet detects which package manager tracks the tool and routes requests to prevent conflicting duplicate installations.
+* **Safe & Zero-Config**: Safely skips missing package managers without throwing PowerShell errors.
+* **🛡️ Non-Elevated / UAC-Bypass Mode**:
+  * **WinGet User-Scope**: If `UserScopeInstall` is enabled, running OmniGet in a non-elevated prompt automatically appends `--scope user --disable-interactivity` to WinGet. This allows packages to install within the current user profile, completely bypassing Windows User Account Control (UAC) administrator popup prompts.
+  * **Chocolatey Non-Admin Refinement**: Automatically detects non-elevated environments and omits silent flags (`-y` and `--silent`) when falling back to Chocolatey to prevent silent failures on privilege checks.
+* **TUI (Terminal UI)**: Run `omniget ui` to manage your packages via an elegant interactive terminal interface using ANSI escape sequences.
+* **Conflict Doctor**: Run `omniget doctor` to scan for redundant installations of the same app across different package managers and help resolve conflict states.
+* **Dry-Run Safe Mode**: Append `--dry-run` to commands to preview actions before making system modifications.
+* **Argument Passthrough**: Seamlessly pass custom flags down to the underlying tools.
+
+---
 
 ## 🚀 Installation
 
-There are three primary ways to setup OmniGet natively:
-
-### Option A: Add to System PATH (Recommended)
-Add the folder containing `OmniGet.ps1` to your Windows `PATH` environment variable. Once added, you can call `omniget` directly from any terminal!
-
-### Option B: Edit your PowerShell Profile
-1. Open PowerShell and type:
-   ```powershell
-   notepad $PROFILE
-   ```
-2. Paste the contents of `OmniGet.ps1` at the very bottom of the document.
-3. Save, restart PowerShell, and use `omniget` natively!
-
-### Option C: Dot-Source the Script
-Keep `OmniGet.ps1` somewhere on your computer and simply dot-source it in your profile:
+### Option 1: Via WinGet (Recommended)
+You can install OmniGet natively through WinGet itself:
 ```powershell
-. "C:\Path\To\Your\Folder\OmniGet.ps1"
+winget install -e --id Nexus.OmniGet
 ```
+
+### Option 2: Native Setup Installer
+Download the `OmniGetSetup.exe` binary from the latest GitHub Release. The installer:
+1. Automatically deploys the application files to `%LOCALAPPDATA%\OmniGet`.
+2. Configures your user environment `PATH`.
+3. Launches the **Setup Priority Wizard** to configure your package manager priority cascade and User-Scope install preferences.
+
+### Option 3: Manual Script Setup
+If you prefer running the raw PowerShell script:
+* **Option A: Add to PATH**: Add the directory containing [OmniGet.ps1](file:///c:/Users/harih/Documents/Open_Source_Contribution/My%20Projects/Install%20Script/OmniGet.ps1) to your user `PATH`.
+* **Option B: PowerShell Profile**: Open your profile using `notepad $PROFILE` and paste the contents of `OmniGet.ps1` at the bottom.
+* **Option C: Dot-Source**: Add `. "C:\Path\To\OmniGet.ps1"` to your PowerShell profile.
+
+---
 
 ## 📚 Examples & Usage
 
-Installs cascading through WinGet ➔ Chocolatey ➔ Scoop until successful:
+### Installing Packages
+Installs packages cascading through WinGet ➔ Chocolatey ➔ Scoop until successful:
 ```powershell
 omniget install nodejs
 ```
-
-Pass down specific versions or arguments:
+Pass specific versions or custom arguments:
 ```powershell
 omniget install vlc --version 3.0.0
 ```
 
-Check which applications have upgrades available across all your systems:
+### Upgrading Packages
+Check for available updates across all active package managers:
 ```powershell
 omniget outdated
 ```
-
-Update everything on your system (outputs a cleanly structured success/fail table):
+Update all outdated packages on your system and get a formatted summary:
 ```powershell
 omniget upgrade all
 ```
 
-Search across all registries simultaneously to see where a tool lives:
+### Searching & Listing
+Search all active registries for a package simultaneously:
 ```powershell
 omniget search powertoys
 ```
-
-Run a system-wide upgrade simulation without installing anything:
-```powershell
-omniget upgrade all --dry-run
-```
-
-Target a specific package manager to bypass the cascade priority:
-```powershell
-omniget install vlc --pm scoop
-```
-
-View your system's entire managed software catalog:
+List all installed packages tracked by your managers:
 ```powershell
 omniget list
 ```
 
-Launch the interactive Terminal UI menu:
+### System Diagnostics & Doctor
+Run a system-wide scan to detect and resolve duplicate installations (e.g. VLC installed on both WinGet and Scoop):
+```powershell
+omniget doctor
+```
+
+### Terminal TUI Menu
+Launch the interactive Terminal User Interface:
 ```powershell
 omniget ui
 ```
 
-Remove an application seamlessly regardless of how it was installed:
-```powershell
-omniget uninstall python
-```
+---
+
+## ⚙️ Configuration & Priority Cascade
+
+OmniGet stores your configurations in your user profile at `~/.omniget_config.json`.
+
+### Managing Config
+* **Show configuration**:
+  ```powershell
+  omniget config show
+  ```
+  This displays your current priority cascade order and if User-Scope (UAC-Bypass) installs are enabled.
+* **Reset & Reconfigure**:
+  ```powershell
+  omniget config reset
+  ```
+  Launches the interactive setup wizard to configure your settings again.
+
+---
+
+## 🚩 Global Flags
+
+Modify OmniGet commands using these optional flags:
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | **Safe Mode**: Simulates the command without executing writes. Shows commands that would run. |
+| `--pm <manager>` | **Targeted Mode**: Forces OmniGet to target a specific manager (e.g., `--pm scoop`), ignoring the cascade. |
+| `--no-cascade` | **Strict Priority**: Stops execution if the highest priority manager fails, rather than falling back. |
+| `-v`, `--version` | Displays OmniGet version and active package manager details. |
+| `-?`, `--help` | Prints the help menu. |
+
+---
 
 ## 🛠️ Prerequisites
-At least **one** of the following must be installed on your Windows machine:
+At least **one** of the following must be installed:
 * [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/) (Pre-installed on modern Windows 10/11)
 * [Chocolatey](https://chocolatey.org/)
 * [Scoop](https://scoop.sh/)

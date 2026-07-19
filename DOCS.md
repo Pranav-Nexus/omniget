@@ -6,12 +6,19 @@ OmniGet is a universal package manager wrapper for Windows. It provides a unifie
 
 ## 🚀 Installation
 
-### Option 1: Native Executable Installer (Recommended)
-Run the `OmniGetSetup.exe` file included in the release. This will automatically:
-1. Configure your system `PATH`.
-2. Walk you through setting your package manager priority.
+### Option 1: WinGet (Recommended)
+You can install OmniGet natively through the Windows Package Manager:
+```powershell
+winget install -e --id Nexus.OmniGet
+```
 
-### Option 2: Manual Script Usage
+### Option 2: Native Executable Installer
+Run the `OmniGetSetup.exe` file included in the release. This will automatically:
+1. Copy the executables and scripts to `%LOCALAPPDATA%\OmniGet`.
+2. Configure your user environment `PATH`.
+3. Walk you through setting your package manager priority and User-Scope bypass options using a setup wizard.
+
+### Option 3: Manual Script Usage
 If you prefer running the raw PowerShell script:
 1. Open PowerShell and edit your profile:
    ```powershell
@@ -85,7 +92,7 @@ omniget doctor
 
 ### `config`
 Manage your OmniGet priority cascade settings.
-* `omniget config show` - Displays your current priority order.
+* `omniget config show` - Displays your current priority order and User-Scope UAC bypass configuration.
 * `omniget config reset` - Deletes your configuration and launches the Priority Wizard to set it up again.
 
 ### `ui`
@@ -93,6 +100,22 @@ Launches the interactive Terminal User Interface (TUI), allowing you to manage p
 ```powershell
 omniget ui
 ```
+
+---
+
+## 🛡️ User-Scope & UAC Bypass
+
+One of OmniGet's key features is the ability to operate smoothly in standard user (non-elevated) command prompts without constantly triggering Windows User Account Control (UAC) administrator prompts.
+
+### WinGet User-Scope Installs
+When `UserScopeInstall` is enabled in your configuration:
+* If you run `omniget install <package>` in a non-elevated terminal, OmniGet automatically appends `--scope user --disable-interactivity` to the WinGet execution.
+* WinGet installs the package in your user profile (typically under `%LOCALAPPDATA%\Programs` or similar directories) which does not require administrator privileges.
+
+### Chocolatey Non-Admin Refinement
+If you run `omniget` non-elevated:
+* OmniGet automatically omits the silent flags (`-y` and `--silent`) when passing execution to Chocolatey.
+* This allows Chocolatey to fail or prompt natively, rather than triggering a failed administrative execution attempt.
 
 ---
 
