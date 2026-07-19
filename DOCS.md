@@ -1,55 +1,44 @@
-# OmniGet Documentation 📚
+# OmniGet Reference Documentation 📚
 
-OmniGet is a universal package manager wrapper for Windows. It provides a unified command-line interface to manage software across **WinGet**, **Chocolatey**, and **Scoop**.
+OmniGet is a universal package manager wrapper and developer environment manager for Windows. It provides a unified command-line interface to manage software across **WinGet**, **Chocolatey**, **Scoop**, **Pip**, **NPM**, **Cargo**, and **Nuget**, alongside shell profile and environment variable managers.
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation & Setup
 
-### Option 1: WinGet (Recommended)
-You can install OmniGet natively through the Windows Package Manager:
+### Native Setup Installer
+Run the compiled `OmniGetSetup.exe` (or `OmniGetSetup-x86.exe` on 32-bit systems) to automatically:
+1. Deploy binaries to `%LOCALAPPDATA%\OmniGet`.
+2. Configure your user environment `PATH`.
+3. Auto-detect installed managers and prompt to **bootstrap missing package managers** (Scoop, Chocolatey).
+4. Order priority cascades and configure WinGet User-Scope silent bypass options.
+
+### PowerShell Setup Function
+If you are running the script raw, paste this shortcut block into your `$PROFILE`:
 ```powershell
-winget install -e --id Nexus.OmniGet
+function omniget {
+    & "C:\Path\To\OmniGet.ps1" @args
+}
 ```
 
-### Option 2: Native Executable Installer
-Run the `OmniGetSetup.exe` file included in the release. This will automatically:
-1. Copy the executables and scripts to `%LOCALAPPDATA%\OmniGet`.
-2. Configure your user environment `PATH`.
-3. Walk you through setting your package manager priority and User-Scope bypass options using a setup wizard.
-
-### Option 3: Manual Script Usage
-If you prefer running the raw PowerShell script:
-1. Open PowerShell and edit your profile:
-   ```powershell
-   notepad $PROFILE
-   ```
-2. Add the following function to the bottom of the file (adjust the path to point to your script):
-   ```powershell
-   function omniget {
-       & "C:\Path\To\OmniGet.ps1" @args
-   }
-   ```
-3. Restart PowerShell. You can now use `omniget` from anywhere!
-
 ---
 
-## 🛠️ Core Commands
-
-OmniGet enhances these standard commands to work across all your installed package managers simultaneously:
+## 🛠️ Package Manager Commands
 
 ### `install`
 Installs an application. It will attempt to install via your highest priority package manager. If it fails, it cascades to the next one automatically.
 ```powershell
-omniget install nodejs
+omniget install git
 ```
+* **Specific Manager**: Use `omniget install pylint --pm pip` or `omniget install eslint --pm npm` to route to runtime packages.
+* **Passthrough**: Any custom flags (e.g. `--version 1.0.0`) are forwarded down to the underlying manager.
 
 ### `upgrade`
 Upgrades a specific package.
 ```powershell
 omniget upgrade vlc
 ```
-**System-Wide Update:** Use the `all` keyword to upgrade *everything* across your system cleanly, with a color-coded summary at the end.
+**System Update:** Use the `all` keyword to upgrade everything across active managers. It runs **conflict resolution** before updating to ensure packages aren't duplicated across managers.
 ```powershell
 omniget upgrade all
 ```
@@ -57,110 +46,88 @@ omniget upgrade all
 ### `uninstall`
 Removes an application, searching through all package managers to find where it was installed.
 ```powershell
-omniget uninstall python
+omniget uninstall nodejs
 ```
 
 ### `search`
-Finds packages matching your search term across all active package managers.
+Concurrently searches for packages matching the query across all active managers using PowerShell Runspaces.
 ```powershell
-omniget search powertoys
+omniget search python
 ```
 
 ### `list`
-Displays a list of all installed packages on your system, categorized by the package manager that tracks them.
+Concurrently lists all installed packages on your system, categorized by the package manager tracking them.
 ```powershell
 omniget list
 ```
 
-### `info`
-Shows detailed information about a specific package.
-```powershell
-omniget info firefox
-```
+---
 
-### `outdated`
-Scans your system and lists all applications that currently have updates available.
-```powershell
-omniget outdated
-```
+## 🌐 Environment & PATH Commands
+
+### `env`
+Manages system and user environment variables.
+* **`omniget env show`**: Lists all User and System variables.
+* **`omniget env set <name> <value> [--system]`**: Sets the variable and broadcasts `WM_SETTINGCHANGE` globally so that open shells and system explorer detect it instantly without restarting.
+* **`omniget env remove <name> [--system]`**: Deletes the variable and broadcasts changes.
+
+### `path`
+Manages folder paths inside the environment `PATH` variable safely.
+* **`omniget path show`**: Displays user and system path entries line-by-line.
+* **`omniget path add <folder> [--system] [--prepend]`**: Appends or prepends a directory to `PATH`. Prevents duplicate entries.
+* **`omniget path remove <folder> [--system]`**: Safely removes a directory from `PATH`.
+
+---
+
+## 🩺 System Diagnostic commands
 
 ### `doctor`
-Scans your system for duplicate installations (e.g., an app installed via both WinGet and Chocolatey) and helps you resolve the conflicts.
+* Runs a conflict check to see if packages are installed on multiple managers.
+* Audits the **User PATH** for dead paths (folders that do not exist) and duplicate declarations, offering a prompt to clean them.
+* **`omniget doctor --system`**: Runs path health checks on the **System PATH** specifically (isolated for safety).
+
+---
+
+## 💾 Backup, Sync & Profiles
+
+### `export`
+Exports your current installed package list. Supports `.json` (keeps package manager metadata) and `.txt` (raw text list).
 ```powershell
-omniget doctor
+omniget export backup.json
+omniget export package_list.txt
 ```
 
-### `config`
-Manage your OmniGet priority cascade settings.
-* `omniget config show` - Displays your current priority order and User-Scope UAC bypass configuration.
-* `omniget config reset` - Deletes your configuration and launches the Priority Wizard to set it up again.
-
-### `ui`
-Launches the interactive Terminal User Interface (TUI), allowing you to manage packages using an elegant menu system without typing commands.
+### `import`
+Reinstalls package lists from export files.
 ```powershell
-omniget ui
+omniget import backup.json
 ```
 
----
-
-## 🛡️ User-Scope & UAC Bypass
-
-One of OmniGet's key features is the ability to operate smoothly in standard user (non-elevated) command prompts without constantly triggering Windows User Account Control (UAC) administrator prompts.
-
-### WinGet User-Scope Installs
-When `UserScopeInstall` is enabled in your configuration:
-* If you run `omniget install <package>` in a non-elevated terminal, OmniGet automatically appends `--scope user --disable-interactivity` to the WinGet execution.
-* WinGet installs the package in your user profile (typically under `%LOCALAPPDATA%\Programs` or similar directories) which does not require administrator privileges.
-
-### Chocolatey Non-Admin Refinement
-If you run `omniget` non-elevated:
-* OmniGet automatically omits the silent flags (`-y` and `--silent`) when passing execution to Chocolatey.
-* This allows Chocolatey to fail or prompt natively, rather than triggering a failed administrative execution attempt.
-
----
-
-## 🚩 Global Flags
-
-You can append these flags to modify OmniGet's behavior:
-
-| Flag | Description |
-|---|---|
-| `--dry-run` | **Safe Mode**: Simulates the command without actually installing, upgrading, or modifying your system. It prints exactly what the script *would* execute behind the scenes. |
-| `--pm <manager>` | **Targeted Mode**: Forces OmniGet to exclusively use the specified package manager (e.g., `--pm scoop`). It ignores your priority cascade. |
-| `--no-cascade` | **Strict Priority**: Tells OmniGet to only attempt the command on your #1 priority package manager. If it fails, it will stop instead of falling back to the next one. |
-| `-v`, `--version`| Displays the current version of OmniGet and the versions of your installed package managers. |
-| `--info` | Displays general system information and diagnostics for your package managers. |
-| `-?`, `--help` | Prints the OmniGet help menu. |
-
-**Example of combining flags:**
+### `sync`
+Declaratively synchronizes your system state to match a package file. Installs missing packages and uninstalls any package currently tracked that is not listed in the sync file.
 ```powershell
-omniget upgrade all --pm choco --dry-run
+omniget sync state_file.json
 ```
 
----
-
-## ⚙️ Configuration & Priority Cascade
-
-The core feature of OmniGet is the **Priority Cascade**. When you first run the script or run `omniget config reset`, you are prompted to set the order of your package managers.
-
-For example, if you set your priority to: `winget -> choco -> scoop`
-
-When you type `omniget install git`, OmniGet will:
-1. Attempt to install `git` via `winget`.
-2. If `winget` fails or the package isn't found, it gracefully catches the error and moves to `choco`.
-3. If `choco` fails, it tries `scoop`.
-
-Your configuration is safely saved in your user directory at `~/.omniget_config.json`.
+### `profile`
+Saves and switches user environment profiles.
+* **`omniget profile save <name>`**: Saves all current user environment variables and PATH configurations.
+* **`omniget profile switch <name>`**: Swaps your active user environment to the target profile variables and broadcasts changes globally.
 
 ---
 
-## 🎯 Native Passthrough Commands
+## 👥 Shell Alias Manager
 
-OmniGet acts as a transparent proxy. Any flag you pass that OmniGet doesn't explicitly recognize (like `--exact`, `--version 2.0.0`, etc.) is seamlessly passed down to the underlying package managers.
+### `alias`
+Registers persistent shell command shortcuts inside your PowerShell profile.
+* **`omniget alias add <name> <command>`**: Registers a persistent function in `$PROFILE`.
+* **`omniget alias list`**: Shows custom aliases managed by OmniGet.
+* **`omniget alias remove <name>`**: Safely prunes the alias function block.
 
-Additionally, standard WinGet commands that don't need multi-manager logic are natively passed through. This means you can still use commands like:
-* `omniget source`
-* `omniget hash`
-* `omniget settings`
-* `omniget pin`
-* `omniget features`
+---
+
+## ⚙️ Interactive Terminal UI (`ui`)
+
+Run `omniget ui` to open the Terminal menu. Key integrations:
+* **Batch Install (Option 7)**: Search packages, select multiple entries using comma lists (e.g. `1,3`), and batch-install them in one action.
+* **Batch Upgrade (Option 8)**: Lists all outdated packages, allowing selective checkbox upgrades.

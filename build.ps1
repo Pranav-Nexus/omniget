@@ -157,16 +157,20 @@ using System.Windows.Forms;
 using System.Drawing;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace OmniGetInstaller {
     public class SetupWizard : Form {
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
 
-        private Panel panelWelcome, panelInfo, panelPriority, panelInstall;
+        private Panel panelWelcome, panelInfo, panelBoot, panelPriority, panelInstall;
         private ListBox lbPriority;
         private Button btnNext, btnBack, btnCancel;
         private CheckBox chkUserScope;
+        private CheckBox chkChocoBoot, chkScoopBoot;
+        private bool showBootPage = false;
+        private List<Panel> steps = new List<Panel>();
         private int currentStep = 0;
 
         private static bool CommandExists(string command) {
@@ -181,15 +185,26 @@ namespace OmniGetInstaller {
             return false;
         }
 
+        private static void RunPowerShellScript(string script) {
+            var psi = new ProcessStartInfo {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"" + script.Replace("\"", "\\\"") + "\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            try {
+                var p = Process.Start(psi);
+                p.WaitForExit();
+            } catch { }
+        }
+
         private static void SilentInstall() {
-            // Auto-detect installed package managers
             var priority = new List<string>();
             if (CommandExists("winget")) priority.Add("winget");
             if (CommandExists("choco"))  priority.Add("choco");
             if (CommandExists("scoop"))  priority.Add("scoop");
             if (priority.Count == 0)     priority.Add("winget"); // Fallback
 
-            // Write ~/.omniget_config.json
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string configPath  = Path.Combine(userProfile, ".omniget_config.json");
             string json = "{ \"Priority\": [";
@@ -200,7 +215,6 @@ namespace OmniGetInstaller {
             json += "], \"UserScopeInstall\": true }";
             File.WriteAllText(configPath, json);
 
-            // Deploy executables to %LOCALAPPDATA%\OmniGet
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string installDir   = Path.Combine(localAppData, "OmniGet");
             if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
@@ -211,7 +225,6 @@ namespace OmniGetInstaller {
             string b64Uninst = "$base64Uninst";
             File.WriteAllBytes(Path.Combine(installDir, "OmniGetUninstall.exe"), Convert.FromBase64String(b64Uninst));
 
-            // Add install directory to HKCU PATH
             using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
                 if (key != null) {
                     string path = key.GetValue("PATH") as string ?? "";
@@ -223,7 +236,6 @@ namespace OmniGetInstaller {
                 }
             }
 
-            // Broadcast WM_SETTINGCHANGE so PATH is picked up without reboot
             IntPtr res;
             SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
         }
@@ -258,15 +270,44 @@ namespace OmniGetInstaller {
             panelInfo.Controls.Add(new Label() { Text = "What is OmniGet?", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
             panelInfo.Controls.Add(new Label() { Text = "OmniGet is a universal command-line package manager wrapper for Windows.\n\nIt seamlessly combines the power of WinGet, Chocolatey, and Scoop into a single, elegant `omniget` command.\n\nFeatures:\n- Install packages seamlessly across all ecosystems\n- Intelligent conflict detection avoiding duplicate installations", Font = new Font("Segoe UI", 10), Location = new Point(20, 60), Size = new Size(450, 150) });
 
+            bool hasChoco = CommandExists("choco");
+            bool hasScoop = CommandExists("scoop");
+            if (!hasChoco || !hasScoop) {
+                showBootPage = true;
+            }
+
+            panelBoot = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = false };
+            panelBoot.Controls.Add(new Label() { Text = "Bootstrap Package Managers", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
+            panelBoot.Controls.Add(new Label() { Text = "Setup has detected that some package managers are missing from your computer. Select the ones you want Setup to install automatically:", Font = new Font("Segoe UI", 10), Location = new Point(20, 55), Size = new Size(450, 45) });
+
+            chkChocoBoot = new CheckBox() {
+                Text = "Bootstrap Chocolatey (requires administrator privileges)",
+                Location = new Point(20, 110),
+                Size = new Size(440, 20),
+                Font = new Font("Segoe UI", 9),
+                Checked = false,
+                Visible = !hasChoco
+            };
+            chkScoopBoot = new CheckBox() {
+                Text = "Bootstrap Scoop (installs inside user scope)",
+                Location = new Point(20, 140),
+                Size = new Size(440, 20),
+                Font = new Font("Segoe UI", 9),
+                Checked = false,
+                Visible = !hasScoop
+            };
+            panelBoot.Controls.Add(chkChocoBoot);
+            panelBoot.Controls.Add(chkScoopBoot);
+
             panelPriority = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = false };
             panelPriority.Controls.Add(new Label() { Text = "Configure Package Priority", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
             panelPriority.Controls.Add(new Label() { Text = "Setup has automatically scanned and detected the following managers on your system. Order them using the buttons to set your preference cascade.", Font = new Font("Segoe UI", 10), Location = new Point(20, 60), Size = new Size(450, 45) });
             
             lbPriority = new ListBox() { Location = new Point(20, 110), Size = new Size(200, 120), Font = new Font("Segoe UI", 10) };
             if (CommandExists("winget")) lbPriority.Items.Add("winget");
-            if (CommandExists("choco")) lbPriority.Items.Add("choco");
-            if (CommandExists("scoop")) lbPriority.Items.Add("scoop");
-            if (lbPriority.Items.Count == 0) lbPriority.Items.Add("winget"); // Failsafe empty detection
+            if (hasChoco) lbPriority.Items.Add("choco");
+            if (hasScoop) lbPriority.Items.Add("scoop");
+            if (lbPriority.Items.Count == 0) lbPriority.Items.Add("winget");
             
             Button btnUp = new Button() { Text = "Move Up", Location = new Point(230, 110), Size = new Size(100, 30) };
             Button btnDown = new Button() { Text = "Move Down", Location = new Point(230, 150), Size = new Size(100, 30) };
@@ -308,55 +349,76 @@ namespace OmniGetInstaller {
 
             this.Controls.Add(panelWelcome);
             this.Controls.Add(panelInfo);
+            this.Controls.Add(panelBoot);
             this.Controls.Add(panelPriority);
             this.Controls.Add(panelInstall);
+
+            steps.Add(panelWelcome);
+            steps.Add(panelInfo);
+            if (showBootPage) {
+                steps.Add(panelBoot);
+            }
+            steps.Add(panelPriority);
+            steps.Add(panelInstall);
         }
 
         private void BtnNext_Click(object sender, EventArgs e) {
-            if (currentStep == 0) {
-                currentStep = 1;
-                panelWelcome.Visible = false;
-                panelInfo.Visible = true;
+            if (showBootPage && steps[currentStep] == panelBoot) {
+                if (chkScoopBoot.Checked && !lbPriority.Items.Contains("scoop")) lbPriority.Items.Add("scoop");
+                if (chkChocoBoot.Checked && !lbPriority.Items.Contains("choco")) lbPriority.Items.Add("choco");
+            }
+
+            if (currentStep < steps.Count - 1) {
+                steps[currentStep].Visible = false;
+                currentStep++;
+                steps[currentStep].Visible = true;
                 btnBack.Enabled = true;
-            } else if (currentStep == 1) {
-                currentStep = 2;
-                panelInfo.Visible = false;
-                panelPriority.Visible = true;
-            } else if (currentStep == 2) {
-                currentStep = 3;
-                panelPriority.Visible = false;
-                panelInstall.Visible = true;
-                btnNext.Text = "Install";
-            } else if (currentStep == 3) {
+                if (currentStep == steps.Count - 1) {
+                    btnNext.Text = "Install";
+                }
+            } else if (currentStep == steps.Count - 1) {
                 btnNext.Enabled = false;
                 btnBack.Enabled = false;
                 PerformInstall();
-            } else if (currentStep == 4) {
+            } else if (currentStep == steps.Count) {
                 this.Close();
             }
         }
 
         private void BtnBack_Click(object sender, EventArgs e) {
-            if (currentStep == 1) {
-                currentStep = 0;
-                panelInfo.Visible = false;
-                panelWelcome.Visible = true;
-                btnBack.Enabled = false;
-            } else if (currentStep == 2) {
-                currentStep = 1;
-                panelPriority.Visible = false;
-                panelInfo.Visible = true;
-            } else if (currentStep == 3) {
-                currentStep = 2;
-                panelInstall.Visible = false;
-                panelPriority.Visible = true;
+            if (currentStep > 0) {
+                steps[currentStep].Visible = false;
+                currentStep--;
+                steps[currentStep].Visible = true;
                 btnNext.Text = "Next >";
+                if (currentStep == 0) {
+                    btnBack.Enabled = false;
+                }
             }
         }
 
         private void PerformInstall() {
             try {
-                // 1. Write the Config based on ListBox and CheckBox
+                this.Cursor = Cursors.WaitCursor;
+                panelInstall.Controls.Clear();
+                var lblStatus = new Label() { Text = "Installing OmniGet...", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 40) };
+                panelInstall.Controls.Add(lblStatus);
+                panelInstall.Refresh();
+
+                if (chkScoopBoot != null && chkScoopBoot.Checked) {
+                    lblStatus.Text = "Bootstrapping Scoop Package Manager...";
+                    panelInstall.Refresh();
+                    RunPowerShellScript("Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression");
+                }
+                if (chkChocoBoot != null && chkChocoBoot.Checked) {
+                    lblStatus.Text = "Bootstrapping Chocolatey Package Manager...";
+                    panelInstall.Refresh();
+                    RunPowerShellScript("Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))");
+                }
+
+                lblStatus.Text = "Writing OmniGet settings...";
+                panelInstall.Refresh();
+
                 string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 string configPath = Path.Combine(userProfile, ".omniget_config.json");
                 string json = "{ \"Priority\": [";
@@ -367,7 +429,9 @@ namespace OmniGetInstaller {
                 json += "], \"UserScopeInstall\": " + chkUserScope.Checked.ToString().ToLower() + " }";
                 File.WriteAllText(configPath, json);
 
-                // 2. Deploy Executables
+                lblStatus.Text = "Deploying binaries...";
+                panelInstall.Refresh();
+
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string installDir = Path.Combine(localAppData, "OmniGet");
                 if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
@@ -378,7 +442,6 @@ namespace OmniGetInstaller {
                 string b64Uninst = "$base64Uninst";
                 File.WriteAllBytes(Path.Combine(installDir, "OmniGetUninstall.exe"), Convert.FromBase64String(b64Uninst));
 
-                // 3. Edit Path
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
                     if (key != null) {
                         string path = key.GetValue("PATH") as string ?? "";
@@ -393,15 +456,17 @@ namespace OmniGetInstaller {
                 IntPtr res;
                 SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
 
+                this.Cursor = Cursors.Default;
                 panelInstall.Controls.Clear();
                 panelInstall.Controls.Add(new Label() { Text = "Installation Complete!", Font = new Font("Segoe UI", 14, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 40) });
                 panelInstall.Controls.Add(new Label() { Text = "OmniGet was successfully installed and configured!\n\nIMPORTANT: Please restart any open PowerShell or Command Prompt windows for the new `omniget` command to be fully recognized by the console.", Font = new Font("Segoe UI", 10), Location = new Point(20, 70), Size = new Size(450, 80) });
-                currentStep = 4;
+                currentStep = steps.Count;
                 btnNext.Text = "Finish";
                 btnNext.Enabled = true;
                 btnCancel.Enabled = false;
 
             } catch (Exception ex) {
+                this.Cursor = Cursors.Default;
                 MessageBox.Show("Installation failed:\n" + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnNext.Enabled = true;
                 btnBack.Enabled = true;
