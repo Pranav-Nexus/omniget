@@ -205,6 +205,25 @@ if (Test-Path $configFile) {
 # Admin elevation check
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
+# System Host Architecture Detection
+$hostArch = if ([Environment]::Is64BitOperatingSystem) {
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'ARM64' } else { 'x64' }
+} else { 'x86' }
+
+function Test-ArchitectureCompatibility([string]$targetArch) {
+    if ([string]::IsNullOrWhiteSpace($targetArch) -or $targetArch.ToLower() -eq 'universal') { return $true }
+    $tArch = $targetArch.ToLower()
+    if ($hostArch -eq 'x64' -and $tArch -eq 'arm64') {
+        Write-Host "[ARCHITECTURE ERROR] ARM64 binary cannot run on x64 ($hostArch) Windows. Installation blocked." -ForegroundColor Red
+        return $false
+    }
+    if ($hostArch -eq 'ARM64' -and $tArch -eq 'x64') {
+        Write-Host "[EMULATION NOTICE] Installing x64 binary under Windows 11 ARM64 x64 Emulation mode." -ForegroundColor Yellow
+        return $true
+    }
+    return $true
+}
+
 $wgFlags = @("--silent", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
 if (-not $isAdmin -and $userScopeInstall) {
     $wgFlags += @("--scope", "user")
@@ -935,6 +954,62 @@ switch ($actionLower) {
         }
     }
     "doctor" {
+        $subCmd = if ($RemainingArgs.Count -gt 0) { $RemainingArgs[0] } else { "" }
+        $targetId = if ($RemainingArgs.Count -gt 1) { $RemainingArgs[1] } else { "" }
+        $extraArg = if ($RemainingArgs.Count -gt 2) { $RemainingArgs[2] } else { "" }
+
+        $configPath = Join-Path $env:USERPROFILE ".omniget_config.json"
+        $configObj = @{}
+        if (Test-Path $configPath) {
+            try { $configObj = Get-Content $configPath -Raw | ConvertFrom-Json -AsHashtable } catch {}
+        }
+        if (-not $configObj.ContainsKey("DismissedWarnings")) {
+            $configObj["DismissedWarnings"] = @{}
+        }
+
+        if ($subCmd -eq "dismiss" -and $targetId) {
+            $configObj["DismissedWarnings"][$targetId] = @{ dismissed = $true; snoozedUntil = $null }
+            $configObj | ConvertTo-Json -Depth 5 | Set-Content $configPath -Encoding UTF8
+            Write-Host "Warning '$targetId' permanently dismissed." -ForegroundColor Green
+            return
+        }
+        if ($subCmd -eq "snooze" -and $targetId) {
+            $hours = 24
+            if ($extraArg -and [int]::TryParse($extraArg, [ref]$hours)) {}
+            $snoozeTime = (Get-Date).AddHours($hours).ToString("o")
+            $configObj["DismissedWarnings"][$targetId] = @{ dismissed = $true; snoozedUntil = $snoozeTime }
+            $configObj | ConvertTo-Json -Depth 5 | Set-Content $configPath -Encoding UTF8
+            Write-Host "Warning '$targetId' snoozed for $hours hours (until $snoozeTime)." -ForegroundColor Yellow
+            return
+        }
+        if ($subCmd -eq "restore" -and $targetId) {
+            if ($configObj["DismissedWarnings"].ContainsKey($targetId)) {
+                $configObj["DismissedWarnings"].Remove($targetId)
+                $configObj | ConvertTo-Json -Depth 5 | Set-Content $configPath -Encoding UTF8
+                Write-Host "Warning '$targetId' restored to active audit checklist." -ForegroundColor Green
+            } else {
+                Write-Host "Warning '$targetId' was not dismissed." -ForegroundColor Red
+            }
+            return
+        }
+        if ($subCmd -eq "list-dismissed") {
+            Write-Host "=== Dismissed & Snoozed Warnings ===" -ForegroundColor Cyan
+            $dw = $configObj["DismissedWarnings"]
+            if ($dw -and $dw.Count -gt 0) {
+                foreach ($k in $dw.Keys) {
+                    $item = $dw[$k]
+                    if ($item.snoozedUntil) {
+                        Write-Host "- $k : Snoozed until $($item.snoozedUntil)" -ForegroundColor Yellow
+                    } else {
+                        Write-Host "- $k : Permanently Dismissed" -ForegroundColor Red
+                    }
+                }
+            } else {
+                Write-Host "No warnings are currently dismissed or snoozed." -ForegroundColor Gray
+            }
+            return
+        }
+
         Write-Host "OmniGet Conflict Doctor" -ForegroundColor Cyan
         $chocoPackages = @()
         if ("choco" -in $activePriority) {

@@ -28,12 +28,13 @@ You can install OmniGet natively through WinGet:
 winget install -e --id Nexus.OmniGet
 ```
 
-### Option 2: Native Setup Installer
-Download the `OmniGetSetup.exe` binary from the latest GitHub Release. The installer:
-1. Automatically deploys the application files to `%LOCALAPPDATA%\OmniGet`.
-2. Prompts to **bootstrap missing package managers** (Scoop, Chocolatey).
-3. Configures your user environment `PATH`.
-4. Launches the setup wizard to configure priority cascades and bypass options.
+### Option 2: Native Setup Installer & OmniGet UI
+Download the `OmniGetSetup.exe` binary or run the **OmniGet UI** desktop storefront. The setup process:
+1. Automatically deploys application files to `%LOCALAPPDATA%\OmniGet`.
+2. **Auto-bootstraps missing package managers** (automatically installs WinGet via `Microsoft.DesktopAppInstaller` msixbundle if absent on Windows LTSC/Server/Home editions, alongside Scoop & Chocolatey).
+3. Configures user environment `PATH` and persists shared configuration to `~/.omniget_config.json`.
+4. Launches the setup wizard to configure priority cascades and user-scope UAC bypass options.
+
 
 ---
 

@@ -10,8 +10,9 @@ OmniGet is a universal package manager wrapper and developer environment manager
 Run the compiled `OmniGetSetup.exe` (or `OmniGetSetup-x86.exe` on 32-bit systems) to automatically:
 1. Deploy binaries to `%LOCALAPPDATA%\OmniGet`.
 2. Configure your user environment `PATH`.
-3. Auto-detect installed managers and prompt to **bootstrap missing package managers** (Scoop, Chocolatey).
+3. Auto-detect installed managers and **bootstrap missing package managers** (`winget`, `choco`, `scoop`). If `winget` is not present on the system, OmniGet downloads and registers `Microsoft.DesktopAppInstaller` msixbundle automatically or via `omniget bootstrap winget`.
 4. Order priority cascades and configure WinGet User-Scope silent bypass options.
+
 
 ### PowerShell Setup Function
 If you are running the script raw, paste this shortcut block into your `$PROFILE`:

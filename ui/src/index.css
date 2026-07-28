@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --system-accent-color: #005FB8;
+  --system-accent-hover: #0078D4;
+}
+
+@layer base {
+  body {
+    @apply transition-colors duration-200;
+  }
+}
+
+/* Custom Fluent Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Glassmorphism Mica Backdrop */
+.mica-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(25px) saturate(180%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dark .mica-panel {
+  background: rgba(32, 32, 32, 0.75);
+  backdrop-filter: blur(25px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fluent-card {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fluent-card:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.dark .fluent-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .fluent-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+/* Windows Accent Button Style */
+.btn-accent {
+  background-color: var(--system-accent-color);
+  color: #ffffff;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-accent:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 12px var(--system-accent-color);
+}

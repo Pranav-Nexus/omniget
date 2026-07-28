@@ -4,11 +4,20 @@ pr-fix/
 fresh-manifest/
 manifest/
 temp-winget/
+winget-pkgs-fix/
+ui/node_modules/
+ui/dist/
+ui/src-tauri/target/
 
 # Build artifacts
 *.zip
 *.nupkg
-*.exe
+
+# Allow release executables
+!omniget.exe
+!OmniGetSetup.exe
+!OmniGetSetup-x86.exe
+!OmniGetUninstall.exe
 
 # Logs
 log*.txt
