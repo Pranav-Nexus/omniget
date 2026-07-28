@@ -13,12 +13,9 @@ ui/src-tauri/target/
 *.zip
 *.nupkg
 
-# Allow release executables
-!omniget.exe
-!OmniGetUI.exe
-!OmniGetSetup.exe
-!OmniGetSetup-x86.exe
-!OmniGetUninstall.exe
+# Allow clean release executables
+!OmniGet.exe
+!OmniGetCLI.exe
 
 # Logs
 log*.txt

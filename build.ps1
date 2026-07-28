@@ -10,11 +10,18 @@ if (-not (Test-Path $cscPath)) {
     exit 1
 }
 
-# --- STAGE 1: Build omniget.exe (CLI Tool) ---
+# Cleanup old legacy executable files if present
+$legacyFiles = @("OmniGetSetup.exe", "OmniGetSetup-x86.exe", "OmniGetUninstall.exe", "omniget.exe", "OmniGetUI.exe")
+foreach ($legacy in $legacyFiles) {
+    $p = Join-Path $PSScriptRoot $legacy
+    if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+}
+
+# --- STAGE 1: Build OmniGetCLI.exe ---
 $manifestContent = @"
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="OmniGetSetup"/>
+  <assemblyIdentity version="1.0.0.0" name="OmniGetCLI"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
@@ -29,61 +36,118 @@ Set-Content -Path $manifestPath -Value $manifestContent -Encoding UTF8
 
 $ps1Content = Get-Content -Path $ps1Path -Raw
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($ps1Content)
-$base64 = [Convert]::ToBase64String($bytes)
+$base64Script = [Convert]::ToBase64String($bytes)
 
-$csCode = @"
+$cliCsCode = @"
 using System;
 using System.Diagnostics;
-class Program {
-    static int Main(string[] args) {
-        var psi = new ProcessStartInfo {
-            FileName = "powershell.exe",
-            Arguments = "-NoProfile -ExecutionPolicy Bypass -Command -",
-            UseShellExecute = false,
-            RedirectStandardInput = true
-        };
-        var p = Process.Start(psi);
-        string argList = "";
-        foreach (var arg in args) {
-            argList += "'" + arg.Replace("'", "''") + "',";
+
+namespace OmniGetCLI {
+    class Program {
+        static int Main(string[] args) {
+            var psi = new ProcessStartInfo {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -Command -",
+                UseShellExecute = false,
+                RedirectStandardInput = true
+            };
+            var p = Process.Start(psi);
+            string argList = "";
+            foreach (var arg in args) {
+                argList += "'" + arg.Replace("'", "''") + "',";
+            }
+            argList = argList.TrimEnd(',');
+            string base64Script = "$base64Script";
+            p.StandardInput.WriteLine("`$argsParams = @(" + argList + ")");
+            p.StandardInput.WriteLine("`$scriptBase64 = '" + base64Script + "'");
+            p.StandardInput.WriteLine("`$decodedScript = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(`$scriptBase64))");
+            p.StandardInput.WriteLine("Invoke-Command -ScriptBlock ([scriptblock]::Create(`$decodedScript)) -ArgumentList `$argsParams");
+            p.StandardInput.Close();
+            p.WaitForExit();
+            return p.ExitCode;
         }
-        argList = argList.TrimEnd(',');
-        string base64Script = "$base64";
-        p.StandardInput.WriteLine("`$argsParams = @(" + argList + ")");
-        p.StandardInput.WriteLine("`$scriptBase64 = '" + base64Script + "'");
-        p.StandardInput.WriteLine("`$decodedScript = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(`$scriptBase64))");
-        p.StandardInput.WriteLine("Invoke-Command -ScriptBlock ([scriptblock]::Create(`$decodedScript)) -ArgumentList `$argsParams");
-        p.StandardInput.Close();
-        p.WaitForExit();
-        return p.ExitCode;
     }
 }
 "@
-$csPath = Join-Path $PSScriptRoot "wrapper.cs"
-Set-Content -Path $csPath -Value $csCode -Encoding UTF8
+$cliCsPath = Join-Path $PSScriptRoot "clicompile.cs"
+Set-Content -Path $cliCsPath -Value $cliCsCode -Encoding UTF8
 
-Write-Host "Compiling omniget.exe (CLI)..." -ForegroundColor Cyan
-& $cscPath /nologo /target:exe /win32manifest:$manifestPath /out:omniget.exe $csPath
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed building omniget.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
-Remove-Item $csPath -ErrorAction SilentlyContinue
+Write-Host "Compiling OmniGetCLI.exe..." -ForegroundColor Cyan
+& $cscPath /nologo /target:exe /win32manifest:$manifestPath /out:OmniGetCLI.exe $cliCsPath
+if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetCLI.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
+Remove-Item $cliCsPath -ErrorAction SilentlyContinue
 
 
-# --- STAGE 2: Build OmniGetUI.exe (Desktop UI Launcher) ---
-$uiCsCode = @"
+# --- STAGE 2: Package UI Payload Zip ---
+Write-Host "Packaging UI payload zip..." -ForegroundColor Cyan
+$uiZipTemp = Join-Path $env:TEMP "omniget_ui_payload.zip"
+if (Test-Path $uiZipTemp) { Remove-Item $uiZipTemp -Force }
+
+$uiDist = Join-Path $PSScriptRoot "ui\dist"
+$uiServer = Join-Path $PSScriptRoot "ui\server.cjs"
+$uiBridge = Join-Path $PSScriptRoot "ui\bridge.ps1"
+$uiMcp = Join-Path $PSScriptRoot "ui\mcp-server.cjs"
+
+Compress-Archive -Path $uiDist, $uiServer, $uiBridge, $uiMcp -DestinationPath $uiZipTemp -Force
+$uiPayloadBytes = [System.IO.File]::ReadAllBytes($uiZipTemp)
+$base64UIPayload = [Convert]::ToBase64String($uiPayloadBytes)
+Remove-Item $uiZipTemp -Force
+
+$cliBytes = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "OmniGetCLI.exe"))
+$base64CLI = [Convert]::ToBase64String($cliBytes)
+
+
+# --- STAGE 3: Build OmniGet.exe (Main App & Universal Setup) ---
+Write-Host "Compiling OmniGet.exe (Main GUI App & Setup)..." -ForegroundColor Cyan
+$guiCsCode = @"
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.Threading;
+using System.IO.Compression;
+using System.Collections.Generic;
 using System.Windows.Forms;
+using System.Drawing;
+using Microsoft.Win32;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Threading;
 
-namespace OmniGetUI {
-    static class Program {
+namespace OmniGet {
+    public class Program {
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+
         [STAThread]
-        static void Main(string[] args) {
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            string serverPath = Path.Combine(dir, "ui", "server.cjs");
-            if (!File.Exists(serverPath)) serverPath = Path.Combine(dir, "server.cjs");
+        public static void Main(string[] args) {
+            bool runSetup = false;
+            bool runUninstall = false;
 
+            foreach (var a in args) {
+                if (a.Equals("/install", StringComparison.OrdinalIgnoreCase) || a.Equals("--install", StringComparison.OrdinalIgnoreCase)) {
+                    runSetup = true;
+                } else if (a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) || a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase)) {
+                    runUninstall = true;
+                }
+            }
+
+            if (runUninstall) {
+                Uninstall();
+                return;
+            }
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string installDir = Path.Combine(localAppData, "OmniGet");
+            string serverPath = Path.Combine(installDir, "ui", "server.cjs");
+
+            if (runSetup || !File.Exists(serverPath)) {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new SetupWizard());
+            } else {
+                LaunchGUI(installDir, serverPath);
+            }
+        }
+
+        public static void LaunchGUI(string installDir, string serverPath) {
             var psi = new ProcessStartInfo {
                 FileName = "cmd.exe",
                 Arguments = "/c node \"" + serverPath + "\"",
@@ -99,39 +163,13 @@ namespace OmniGetUI {
                 MessageBox.Show("Unable to launch OmniGet UI: " + ex.Message + "\n\nPlease ensure Node.js is installed.", "OmniGet Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-    }
-}
-"@
-$uiCsPath = Join-Path $PSScriptRoot "uilauncher.cs"
-Set-Content -Path $uiCsPath -Value $uiCsCode -Encoding UTF8
 
-Write-Host "Compiling OmniGetUI.exe (GUI Launcher)..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetUI.exe /reference:System.Windows.Forms.dll $uiCsPath
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetUI.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
-Remove-Item $uiCsPath -ErrorAction SilentlyContinue
-
-
-# --- STAGE 3: Build Uninstaller ---
-$uninstCsCode = @"
-using System;
-using System.IO;
-using System.Linq;
-using System.Windows.Forms;
-using Microsoft.Win32;
-using System.Runtime.InteropServices;
-
-namespace OmniGetUninstaller {
-    public class Program {
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        public static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
-        
-        [STAThread]
-        public static void Main() {
+        static void Uninstall() {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             
             DialogResult result = MessageBox.Show(
-                "Are you sure you want to completely remove OmniGet and all of its components?",
+                "Are you sure you want to completely uninstall OmniGet and all of its components?",
                 "OmniGet Uninstall",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning
@@ -139,111 +177,53 @@ namespace OmniGetUninstaller {
             
             if (result == DialogResult.Yes) {
                 try {
-                    Uninstall();
+                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    string installDir = Path.Combine(localAppData, "OmniGet");
+                    
+                    using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
+                        if (key != null) {
+                            string path = key.GetValue("PATH") as string ?? "";
+                            if (path.Contains(installDir)) {
+                                var parts = System.Linq.Enumerable.Where(path.Split(';'), p => !p.Equals(installDir, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(p));
+                                string newPath = string.Join(";", parts);
+                                key.SetValue("PATH", newPath, RegistryValueKind.ExpandString);
+                            }
+                        }
+                    }
+                    
+                    IntPtr res;
+                    SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
+
+                    string startMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "OmniGet");
+                    if (Directory.Exists(startMenuDir)) Directory.Delete(startMenuDir, true);
+
+                    string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OmniGet.lnk");
+                    if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+
+                    if (Directory.Exists(installDir)) {
+                        var batPath = Path.Combine(Path.GetTempPath(), "omniget_cleanup.bat");
+                        string batContent = "@echo off\r\ntimeout /t 1 /nobreak > NUL\r\nrmdir /s /q \"" + installDir + "\"\r\ndel \"%~f0\"";
+                        File.WriteAllText(batPath, batContent);
+                        var psi = new ProcessStartInfo {
+                            FileName = batPath,
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        Process.Start(psi);
+                    }
                     MessageBox.Show("OmniGet was successfully removed from your computer.", "Uninstall Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 } catch (Exception ex) {
                     MessageBox.Show("Uninstallation encountered an error:\n" + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
-
-        static void Uninstall() {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string installDir = Path.Combine(localAppData, "OmniGet");
-            
-            using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
-                if (key != null) {
-                    string path = key.GetValue("PATH") as string ?? "";
-                    if (path.Contains(installDir)) {
-                        var parts = path.Split(';').Where(p => !p.Equals(installDir, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(p));
-                        string newPath = string.Join(";", parts);
-                        key.SetValue("PATH", newPath, RegistryValueKind.ExpandString);
-                    }
-                }
-            }
-            
-            IntPtr res;
-            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
-
-            // Remove Start Menu & Desktop Shortcuts
-            string startMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "OmniGet");
-            if (Directory.Exists(startMenuDir)) Directory.Delete(startMenuDir, true);
-
-            string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OmniGet.lnk");
-            if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
-
-            if (Directory.Exists(installDir)) {
-                var batPath = Path.Combine(Path.GetTempPath(), "omniget_cleanup.bat");
-                string batContent = "@echo off\r\ntimeout /t 1 /nobreak > NUL\r\nrmdir /s /q \"" + installDir + "\"\r\ndel \"%~f0\"";
-                File.WriteAllText(batPath, batContent);
-                var psi = new System.Diagnostics.ProcessStartInfo {
-                    FileName = batPath,
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                System.Diagnostics.Process.Start(psi);
-            }
-        }
     }
-}
-"@
-$uninstCsPath = Join-Path $PSScriptRoot "uninst.cs"
-Set-Content -Path $uninstCsPath -Value $uninstCsCode -Encoding UTF8
 
-Write-Host "Compiling OmniGetUninstall.exe..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGetUninstall.exe /reference:System.Windows.Forms.dll $uninstCsPath
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed building OmniGetUninstall.exe"; Remove-Item $manifestPath -ErrorAction SilentlyContinue; exit 1 }
-Remove-Item $uninstCsPath -ErrorAction SilentlyContinue
-
-
-# --- STAGE 4: Package UI Payload Zip ---
-Write-Host "Packaging UI payload..." -ForegroundColor Cyan
-$uiZipTemp = Join-Path $env:TEMP "omniget_ui_payload.zip"
-if (Test-Path $uiZipTemp) { Remove-Item $uiZipTemp -Force }
-
-$uiDist = Join-Path $PSScriptRoot "ui\dist"
-$uiServer = Join-Path $PSScriptRoot "ui\server.cjs"
-$uiBridge = Join-Path $PSScriptRoot "ui\bridge.ps1"
-$uiMcp = Join-Path $PSScriptRoot "ui\mcp-server.cjs"
-
-Compress-Archive -Path $uiDist, $uiServer, $uiBridge, $uiMcp -DestinationPath $uiZipTemp -Force
-$uiPayloadBytes = [System.IO.File]::ReadAllBytes($uiZipTemp)
-$base64UIPayload = [Convert]::ToBase64String($uiPayloadBytes)
-Remove-Item $uiZipTemp -Force
-
-
-# --- STAGE 5: Build Universal Installer OmniGetSetup.exe ---
-Write-Host "Bundling CLI, GUI, and Telemetry Engine into OmniGetSetup.exe..." -ForegroundColor Cyan
-$exeContent = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "omniget.exe"))
-$base64Exe = [Convert]::ToBase64String($exeContent)
-
-$uiExeContent = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "OmniGetUI.exe"))
-$base64UIExe = [Convert]::ToBase64String($uiExeContent)
-
-$uninstContent = [System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "OmniGetUninstall.exe"))
-$base64Uninst = [Convert]::ToBase64String($uninstContent)
-
-$setupCsCode = @"
-using System;
-using System.IO;
-using System.Collections.Generic;
-using System.Windows.Forms;
-using System.Drawing;
-using Microsoft.Win32;
-using System.Runtime.InteropServices;
-using System.Diagnostics;
-using System.IO.Compression;
-
-namespace OmniGetInstaller {
     public class SetupWizard : Form {
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        public static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
-
         private Panel panelWelcome, panelInfo, panelBoot, panelPriority, panelInstall;
         private ListBox lbPriority;
         private Button btnNext, btnBack, btnCancel;
-        private CheckBox chkUserScope;
-        private CheckBox chkChocoBoot, chkScoopBoot;
+        private CheckBox chkUserScope, chkChocoBoot, chkScoopBoot;
         private bool showBootPage = false;
         private List<Panel> steps = new List<Panel>();
         private int currentStep = 0;
@@ -274,7 +254,7 @@ namespace OmniGetInstaller {
         }
 
         public SetupWizard() {
-            this.Text = "OmniGet Universal Installer";
+            this.Text = "OmniGet Installer & Setup";
             this.Size = new Size(520, 380);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -285,7 +265,15 @@ namespace OmniGetInstaller {
             btnNext = new Button() { Text = "Next >", Location = new Point(320, 300), Size = new Size(80, 28) };
             btnCancel = new Button() { Text = "Cancel", Location = new Point(410, 300), Size = new Size(80, 28) };
 
-            btnBack.Click += BtnBack_Click;
+            btnBack.Click += (s, e) => {
+                if (currentStep > 0) {
+                    steps[currentStep].Visible = false;
+                    currentStep--;
+                    steps[currentStep].Visible = true;
+                    btnNext.Text = "Next >";
+                    if (currentStep == 0) btnBack.Enabled = false;
+                }
+            };
             btnNext.Click += BtnNext_Click;
             btnCancel.Click += (s, e) => this.Close();
 
@@ -299,7 +287,7 @@ namespace OmniGetInstaller {
         private void InitializeSteps() {
             panelWelcome = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = true };
             panelWelcome.Controls.Add(new Label() { Text = "Welcome to OmniGet Setup", Font = new Font("Segoe UI", 14, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 40) });
-            panelWelcome.Controls.Add(new Label() { Text = "This wizard will install OmniGet CLI & OmniGet Desktop UI Storefront on your computer.\n\nOmniGet unifies WinGet, Chocolatey, and Scoop into a single, lightning-fast package manager and hardware telemetry hub.", Font = new Font("Segoe UI", 10), Location = new Point(20, 70), Size = new Size(450, 160) });
+            panelWelcome.Controls.Add(new Label() { Text = "This wizard will install OmniGet CLI (`OmniGetCLI.exe`) & OmniGet Desktop Store (`OmniGet.exe`) on your computer.\n\nOmniGet unifies WinGet, Chocolatey, and Scoop into a single, lightning-fast package manager and hardware telemetry hub.", Font = new Font("Segoe UI", 10), Location = new Point(20, 70), Size = new Size(450, 160) });
 
             panelInfo = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = false };
             panelInfo.Controls.Add(new Label() { Text = "Component Detection", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
@@ -379,7 +367,7 @@ namespace OmniGetInstaller {
 
             panelInstall = new Panel() { Size = new Size(480, 270), Location = new Point(10, 5), Visible = false };
             panelInstall.Controls.Add(new Label() { Text = "Ready to Install", Font = new Font("Segoe UI", 12, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 30) });
-            panelInstall.Controls.Add(new Label() { Text = "OmniGet CLI and OmniGet Desktop UI will be installed to your local application data and automatically added to your System PATH and Start Menu!\n\nClick Install to continue.", Font = new Font("Segoe UI", 10), Location = new Point(20, 60), Size = new Size(450, 80) });
+            panelInstall.Controls.Add(new Label() { Text = "OmniGet (`OmniGet.exe` & `OmniGetCLI.exe`) will be installed to your local application data and automatically added to your System PATH and Start Menu!\n\nClick Install to continue.", Font = new Font("Segoe UI", 10), Location = new Point(20, 60), Size = new Size(450, 80) });
 
             this.Controls.Add(panelWelcome);
             this.Controls.Add(panelInfo);
@@ -415,19 +403,12 @@ namespace OmniGetInstaller {
                 btnBack.Enabled = false;
                 PerformInstall();
             } else {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string installDir = Path.Combine(localAppData, "OmniGet");
+                string serverPath = Path.Combine(installDir, "ui", "server.cjs");
+                this.Hide();
+                Program.LaunchGUI(installDir, serverPath);
                 this.Close();
-            }
-        }
-
-        private void BtnBack_Click(object sender, EventArgs e) {
-            if (currentStep > 0) {
-                steps[currentStep].Visible = false;
-                currentStep--;
-                steps[currentStep].Visible = true;
-                btnNext.Text = "Next >";
-                if (currentStep == 0) {
-                    btnBack.Enabled = false;
-                }
             }
         }
 
@@ -470,19 +451,16 @@ namespace OmniGetInstaller {
                 string installDir = Path.Combine(localAppData, "OmniGet");
                 if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
 
-                // Write omniget.exe
-                string b64Exe = "$base64Exe";
-                File.WriteAllBytes(Path.Combine(installDir, "omniget.exe"), Convert.FromBase64String(b64Exe));
+                // Write OmniGet.exe copy
+                string selfExe = Process.GetCurrentProcess().MainModule.FileName;
+                File.Copy(selfExe, Path.Combine(installDir, "OmniGet.exe"), true);
 
-                // Write OmniGetUI.exe
-                string b64UIExe = "$base64UIExe";
-                File.WriteAllBytes(Path.Combine(installDir, "OmniGetUI.exe"), Convert.FromBase64String(b64UIExe));
-                
-                // Write OmniGetUninstall.exe
-                string b64Uninst = "$base64Uninst";
-                File.WriteAllBytes(Path.Combine(installDir, "OmniGetUninstall.exe"), Convert.FromBase64String(b64Uninst));
+                // Write OmniGetCLI.exe
+                string b64CLI = "$base64CLI";
+                File.WriteAllBytes(Path.Combine(installDir, "OmniGetCLI.exe"), Convert.FromBase64String(b64CLI));
+                File.WriteAllBytes(Path.Combine(installDir, "omniget.exe"), Convert.FromBase64String(b64CLI));
 
-                // Write and unpack UI Payload Zip
+                // Unpack UI Payload Zip
                 string b64UIPayload = "$base64UIPayload";
                 string uiZipPath = Path.Combine(installDir, "ui.zip");
                 File.WriteAllBytes(uiZipPath, Convert.FromBase64String(b64UIPayload));
@@ -511,16 +489,16 @@ namespace OmniGetInstaller {
 
                 string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OmniGet.lnk");
                 string startMenuShortcut = Path.Combine(startMenuDir, "OmniGet.lnk");
-                string uiExePath = Path.Combine(installDir, "OmniGetUI.exe");
+                string guiExePath = Path.Combine(installDir, "OmniGet.exe");
 
                 string vbsScript = "Set WshShell = CreateObject(\"WScript.Shell\")\r\n" +
                                    "Set shortcut = WshShell.CreateShortcut(\"" + desktopShortcut.Replace("\\", "\\\\") + "\")\r\n" +
-                                   "shortcut.TargetPath = \"" + uiExePath.Replace("\\", "\\\\") + "\"\r\n" +
+                                   "shortcut.TargetPath = \"" + guiExePath.Replace("\\", "\\\\") + "\"\r\n" +
                                    "shortcut.WorkingDirectory = \"" + installDir.Replace("\\", "\\\\") + "\"\r\n" +
                                    "shortcut.Description = \"OmniGet Desktop UI & Telemetry Hub\"\r\n" +
                                    "shortcut.Save\r\n" +
                                    "Set shortcut2 = WshShell.CreateShortcut(\"" + startMenuShortcut.Replace("\\", "\\\\") + "\")\r\n" +
-                                   "shortcut2.TargetPath = \"" + uiExePath.Replace("\\", "\\\\") + "\"\r\n" +
+                                   "shortcut2.TargetPath = \"" + guiExePath.Replace("\\", "\\\\") + "\"\r\n" +
                                    "shortcut2.WorkingDirectory = \"" + installDir.Replace("\\", "\\\\") + "\"\r\n" +
                                    "shortcut2.Description = \"OmniGet Desktop UI & Telemetry Hub\"\r\n" +
                                    "shortcut2.Save";
@@ -530,14 +508,14 @@ namespace OmniGetInstaller {
                 File.Delete(vbsPath);
 
                 IntPtr res;
-                SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
+                Program.SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
 
                 this.Cursor = Cursors.Default;
                 panelInstall.Controls.Clear();
                 panelInstall.Controls.Add(new Label() { Text = "Installation Complete!", Font = new Font("Segoe UI", 14, FontStyle.Bold), AutoSize = false, Location = new Point(20, 20), Size = new Size(450, 40) });
-                panelInstall.Controls.Add(new Label() { Text = "OmniGet CLI and Desktop UI were successfully installed!\n\nShortcuts created on Desktop & Start Menu (`OmniGet`).\nCLI Command: `omniget` or `omniget gui`", Font = new Font("Segoe UI", 10), Location = new Point(20, 70), Size = new Size(450, 100) });
+                panelInstall.Controls.Add(new Label() { Text = "OmniGet Desktop UI and CLI were successfully installed!\n\nShortcuts created on Desktop & Start Menu (`OmniGet`).\nCLI Commands: `OmniGetCLI` or `omniget`", Font = new Font("Segoe UI", 10), Location = new Point(20, 70), Size = new Size(450, 100) });
                 currentStep = steps.Count;
-                btnNext.Text = "Finish";
+                btnNext.Text = "Finish & Launch";
                 btnNext.Enabled = true;
                 btnCancel.Enabled = false;
 
@@ -548,74 +526,23 @@ namespace OmniGetInstaller {
                 btnBack.Enabled = true;
             }
         }
-
-        [STAThread]
-        public static void Main(string[] args) {
-            bool silent = false;
-            foreach (var a in args) {
-                if (a.Equals("/S", StringComparison.OrdinalIgnoreCase) ||
-                    a.Equals("--silent", StringComparison.OrdinalIgnoreCase) ||
-                    a.Equals("-s", StringComparison.OrdinalIgnoreCase)) {
-                    silent = true;
-                    break;
-                }
-            }
-            if (silent) {
-                try   { SilentInstall(); Environment.Exit(0); }
-                catch { Environment.Exit(1); }
-            } else {
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new SetupWizard());
-            }
-        }
-
-        private static void SilentInstall() {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string installDir = Path.Combine(localAppData, "OmniGet");
-            if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
-
-            File.WriteAllBytes(Path.Combine(installDir, "omniget.exe"), Convert.FromBase64String("$base64Exe"));
-            File.WriteAllBytes(Path.Combine(installDir, "OmniGetUI.exe"), Convert.FromBase64String("$base64UIExe"));
-            File.WriteAllBytes(Path.Combine(installDir, "OmniGetUninstall.exe"), Convert.FromBase64String("$base64Uninst"));
-
-            using (var key = Registry.CurrentUser.OpenSubKey(@"Environment", true)) {
-                if (key != null) {
-                    string path = key.GetValue("PATH") as string ?? "";
-                    if (!path.Contains(installDir)) {
-                        if (!path.EndsWith(";") && path.Length > 0) path += ";";
-                        path += installDir;
-                        key.SetValue("PATH", path, RegistryValueKind.ExpandString);
-                    }
-                }
-            }
-            IntPtr res;
-            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 2, 5000, out res);
-        }
     }
 }
 "@
-$setupCsPath = Join-Path $PSScriptRoot "setup.cs"
-Set-Content -Path $setupCsPath -Value $setupCsCode -Encoding UTF8
+$guiCsPath = Join-Path $PSScriptRoot "guicompile.cs"
+Set-Content -Path $guiCsPath -Value $guiCsCode -Encoding UTF8
 
-Write-Host "Compiling OmniGetSetup.exe (x64)..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /platform:x64 /win32manifest:$manifestPath /out:OmniGetSetup.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $setupCsPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Setup x64 compilation failed."
-    Remove-Item $manifestPath -ErrorAction SilentlyContinue
-    exit 1
-}
-
-Write-Host "Compiling OmniGetSetup-x86.exe (x86)..." -ForegroundColor Cyan
-& $cscPath /nologo /target:winexe /platform:x86 /win32manifest:$manifestPath /out:OmniGetSetup-x86.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $setupCsPath
+& $cscPath /nologo /target:winexe /win32manifest:$manifestPath /out:OmniGet.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $guiCsPath
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "Success! OmniGetSetup.exe and OmniGetSetup-x86.exe generated with embedded CLI & UI App." -ForegroundColor Green
-    Remove-Item $setupCsPath -ErrorAction SilentlyContinue
+    Write-Host "Success! Clean industry standard executables generated:" -ForegroundColor Green
+    Write-Host "  - OmniGet.exe (Main Desktop App & Setup)" -ForegroundColor Yellow
+    Write-Host "  - OmniGetCLI.exe (Command Line Engine)" -ForegroundColor Yellow
+    Remove-Item $guiCsPath -ErrorAction SilentlyContinue
+    Remove-Item $manifestPath -ErrorAction SilentlyContinue
 } else {
-    Write-Error "Setup x86 compilation failed."
+    Write-Error "OmniGet.exe compilation failed."
     Remove-Item $manifestPath -ErrorAction SilentlyContinue
     exit 1
 }
 
-Remove-Item $manifestPath -ErrorAction SilentlyContinue
 exit 0
