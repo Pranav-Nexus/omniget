@@ -15,6 +15,7 @@ ui/src-tauri/target/
 
 # Allow release executables
 !omniget.exe
+!OmniGetUI.exe
 !OmniGetSetup.exe
 !OmniGetSetup-x86.exe
 !OmniGetUninstall.exe

@@ -569,8 +569,20 @@ switch ($actionLower) {
         }
     }
     "gui" {
-        Write-Host "OmniGet Graphical UI (GUI) is currently under development!" -ForegroundColor Magenta
-        Write-Host "We recommend using the Terminal UI in the meantime:`n  omniget ui" -ForegroundColor Gray
+        $scriptDir = $PSScriptRoot
+        $serverJs = Join-Path $scriptDir "ui\server.cjs"
+        if (-not (Test-Path $serverJs)) {
+            $serverJs = Join-Path $scriptDir "server.cjs"
+        }
+
+        if (Test-Path $serverJs) {
+            Write-Host "Launching OmniGet GUI & System Telemetry Hub..." -ForegroundColor Cyan
+            Start-Process -FilePath "node" -ArgumentList "`"$serverJs`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+            Start-Process "http://localhost:3001"
+        } else {
+            Write-Host "OmniGet UI server files not found at $serverJs" -ForegroundColor Red
+        }
     }
     "outdated" {
         Write-Host "Fetching outdated packages in parallel..." -ForegroundColor Cyan
