@@ -363,9 +363,11 @@ namespace OmniGetInstaller {
         }
 
         private void BtnNext_Click(object sender, EventArgs e) {
-            if (showBootPage && steps[currentStep] == panelBoot) {
-                if (chkScoopBoot.Checked && !lbPriority.Items.Contains("scoop")) lbPriority.Items.Add("scoop");
-                if (chkChocoBoot.Checked && !lbPriority.Items.Contains("choco")) lbPriority.Items.Add("choco");
+            if (currentStep < steps.Count) {
+                if (showBootPage && steps[currentStep] == panelBoot) {
+                    if (chkScoopBoot != null && chkScoopBoot.Checked && !lbPriority.Items.Contains("scoop")) lbPriority.Items.Add("scoop");
+                    if (chkChocoBoot != null && chkChocoBoot.Checked && !lbPriority.Items.Contains("choco")) lbPriority.Items.Add("choco");
+                }
             }
 
             if (currentStep < steps.Count - 1) {
@@ -380,7 +382,7 @@ namespace OmniGetInstaller {
                 btnNext.Enabled = false;
                 btnBack.Enabled = false;
                 PerformInstall();
-            } else if (currentStep == steps.Count) {
+            } else {
                 this.Close();
             }
         }
