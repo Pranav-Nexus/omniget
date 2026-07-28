@@ -1,11 +1,25 @@
 const http = require('http');
 const { exec } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const PORT = 3001;
 const BRIDGE_SCRIPT = path.resolve(__dirname, 'bridge.ps1');
 
-// Cache only static heavy endpoints (installed list, outdated list)
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
+};
+
+// Cache static heavy endpoints
 const cache = {};
 const CACHE_TTL_MS = 10000;
 
@@ -41,69 +55,22 @@ function parseInstalledList(output) {
       isParsing = true;
       continue;
     }
-    if (isParsing && line.startsWith('---')) continue;
-    if (isParsing && line.trim()) {
-      const match = line.match(/^(.+?)\s{2,}([a-zA-Z0-9\-\._\:]+)\s{2,}([^\s]+)\s{2,}([^\s]+)/);
-      if (match) {
-        packages.push({
-          name: match[1].trim(),
-          id: match[2].trim(),
-          version: match[3].trim(),
-          source: (match[4].trim().toLowerCase() || 'winget'),
-          publisher: match[2].includes('.') ? match[2].split('.')[0] : 'Installed Package'
-        });
-      } else {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 3) {
-          packages.push({
-            name: parts[0],
-            id: parts[1] || parts[0],
-            version: parts[2] || '1.0.0',
-            source: 'winget',
-            publisher: 'Package'
-          });
-        }
-      }
-    }
-  }
+    if (line.startsWith('---') || !isParsing || !line.trim()) continue;
 
-  if (packages.length === 0) {
-    const jsonMatch = extractJson(output);
-    if (Array.isArray(jsonMatch)) return jsonMatch;
+    const parts = line.trim().split(/\s{2,}/);
+    if (parts.length >= 3) {
+      packages.push({
+        name: parts[0],
+        id: parts[1],
+        version: parts[2],
+        availableVersion: parts[3] || parts[2],
+        source: parts[4] || 'winget',
+        publisher: parts[1].includes('.') ? parts[1].split('.')[0] : 'Installed Package'
+      });
+    }
   }
 
   return packages;
-}
-
-function parseSearchResults(output) {
-  const results = [];
-  const lines = output.split(/\r?\n/);
-  let isParsing = false;
-
-  for (const line of lines) {
-    if (line.includes('Name') && line.includes('Id')) {
-      isParsing = true;
-      continue;
-    }
-    if (isParsing && line.startsWith('---')) continue;
-    if (isParsing && line.trim()) {
-      const match = line.match(/^(.+?)\s{2,}([a-zA-Z0-9\-\._\:]+)\s{2,}([^\s]+)\s{2,}([^\s]+)/);
-      if (match) {
-        results.push({
-          id: match[2].trim(),
-          name: match[1].trim(),
-          publisher: match[2].includes('.') ? match[2].split('.')[0] : 'Community Package',
-          description: `Package ${match[1].trim()} available via multi-repo registry.`,
-          version: match[3].trim(),
-          source: match[4].trim().toLowerCase() || 'winget',
-          sourcesAvailable: ['winget', 'choco', 'scoop'],
-          category: 'Development',
-          rating: 4.8
-        });
-      }
-    }
-  }
-  return results;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -112,38 +79,30 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(200);
+    res.writeHead(204);
     return res.end();
   }
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const cacheKey = url.pathname + url.search;
-
-  // Never cache real-time live telemetry endpoints
-  const liveRealtimeEndpoints = ['/api/system-info', '/api/processes', '/api/privacy/logs'];
-  if (req.method === 'GET' && !liveRealtimeEndpoints.includes(url.pathname) && cache[cacheKey] && (Date.now() - cache[cacheKey].timestamp < CACHE_TTL_MS)) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(cache[cacheKey].body);
-  }
 
   try {
-    // 0. Live System Specs & Telemetry Endpoint (Real-time Task Manager counters)
+    // 1. Live Hardware System Telemetry
     if (url.pathname === '/api/system-info') {
       const resData = await runBridge('system-info');
-      const info = extractJson(resData.output) || {};
+      const info = extractJson(resData.output);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, info }));
     }
 
-    // Running Processes
+    // 2. Live Process Explorer
     if (url.pathname === '/api/processes') {
       const resData = await runBridge('processes');
-      let processes = extractJson(resData.output) || [];
-      if (!Array.isArray(processes)) processes = [processes];
+      const processes = extractJson(resData.output) || [];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, processes }));
     }
 
+    // 3. Process Kill Endpoint
     if (url.pathname === '/api/processes/kill' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => body += chunk);
@@ -151,124 +110,84 @@ const server = http.createServer(async (req, res) => {
         const { pid } = JSON.parse(body || '{}');
         const resData = await runBridge('process-kill', pid);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: resData.success, command: `Stop-Process -Id ${pid}`, output: resData.output }));
+        res.end(JSON.stringify({ success: resData.success }));
       });
       return;
     }
 
-    // Privacy Access Logs (Webcam, Microphone, Location handles)
+    // 4. Hardware Privacy Audit Logs
     if (url.pathname === '/api/privacy/logs') {
       const resData = await runBridge('privacy-logs');
-      let logs = extractJson(resData.output) || [];
-      if (!Array.isArray(logs)) logs = [logs];
+      const logs = extractJson(resData.output) || [];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, logs }));
     }
 
-    // Windows Services
-    if (url.pathname === '/api/services') {
-      const resData = await runBridge('services');
-      let services = extractJson(resData.output) || [];
-      if (!Array.isArray(services)) services = [services];
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, services }));
-    }
-
-    // Startup Applications
-    if (url.pathname === '/api/startup') {
-      const resData = await runBridge('startup');
-      let startup = extractJson(resData.output) || [];
-      if (!Array.isArray(startup)) startup = [startup];
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, startup }));
-    }
-
-    // Installed Library
+    // Installed Packages
     if (url.pathname === '/api/installed') {
+      if (cache['/api/installed'] && (Date.now() - cache['/api/installed'].timestamp < CACHE_TTL_MS)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(cache['/api/installed'].data);
+      }
+
       const resData = await runBridge('installed');
-      const pkgs = parseInstalledList(resData.output);
-      const jsonStr = JSON.stringify({ success: true, command: 'omniget list', packages: pkgs, raw: resData.output });
-      cache[cacheKey] = { timestamp: Date.now(), body: jsonStr };
+      let packages = extractJson(resData.output);
+      if (!packages) {
+        packages = parseInstalledList(resData.output);
+      }
+
+      const jsonStr = JSON.stringify({ success: true, packages });
+      cache['/api/installed'] = { timestamp: Date.now(), data: jsonStr };
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(jsonStr);
     }
 
-    // Outdated Updates Dashboard
+    // Outdated Packages
     if (url.pathname === '/api/outdated') {
+      if (cache['/api/outdated'] && (Date.now() - cache['/api/outdated'].timestamp < CACHE_TTL_MS)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(cache['/api/outdated'].data);
+      }
+
       const resData = await runBridge('outdated');
       let updates = extractJson(resData.output) || [];
-      if (!Array.isArray(updates)) updates = [updates];
-      const jsonStr = JSON.stringify({ success: true, command: 'omniget upgrade (outdated scan)', updates, raw: resData.output });
-      cache[cacheKey] = { timestamp: Date.now(), body: jsonStr };
+
+      const jsonStr = JSON.stringify({ success: true, updates });
+      cache['/api/outdated'] = { timestamp: Date.now(), data: jsonStr };
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(jsonStr);
     }
 
-    // Search
-    if (url.pathname === '/api/search') {
-      const query = url.searchParams.get('q') || '';
-      if (!query.trim()) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ success: true, command: 'omniget search', results: [] }));
-      }
-      const resData = await runBridge('search', `"${query}"`);
-      const results = parseSearchResults(resData.output);
-      const jsonStr = JSON.stringify({ success: true, command: `omniget search ${query}`, results, raw: resData.output });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(jsonStr);
-    }
-
-    // Doctor System Audit
+    // Doctor Diagnostics
     if (url.pathname === '/api/doctor') {
       const resData = await runBridge('doctor');
       let checks = extractJson(resData.output) || [];
       if (!Array.isArray(checks)) checks = [checks];
-      const jsonStr = JSON.stringify({ success: true, command: 'omniget doctor', checks, raw: resData.output });
-      cache[cacheKey] = { timestamp: Date.now(), body: jsonStr };
+      const jsonStr = JSON.stringify({ success: true, checks });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(jsonStr);
     }
 
-    // Doctor Dismiss
-    if (url.pathname === '/api/doctor/dismiss' && req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', async () => {
-        const { id } = JSON.parse(body || '{}');
-        const resData = await runBridge('doctor-dismiss', id);
-        delete cache['/api/doctor'];
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, command: `omniget doctor dismiss ${id}`, output: resData.output }));
-      });
-      return;
+    // Services
+    if (url.pathname === '/api/services') {
+      const resData = await runBridge('services');
+      let svcs = extractJson(resData.output) || [];
+      if (!Array.isArray(svcs)) svcs = [svcs];
+      const jsonStr = JSON.stringify({ success: true, services: svcs });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(jsonStr);
     }
 
-    // Doctor Snooze
-    if (url.pathname === '/api/doctor/snooze' && req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', async () => {
-        const { id, hours } = JSON.parse(body || '{}');
-        const resData = await runBridge('doctor-snooze', id, hours);
-        delete cache['/api/doctor'];
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, command: `omniget doctor snooze ${id} ${hours}`, output: resData.output }));
-      });
-      return;
-    }
-
-    // Doctor Restore
-    if (url.pathname === '/api/doctor/restore' && req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', async () => {
-        const { id } = JSON.parse(body || '{}');
-        const resData = await runBridge('doctor-restore', id);
-        delete cache['/api/doctor'];
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, command: `omniget doctor restore ${id}`, output: resData.output }));
-      });
-      return;
+    // Startup Programs
+    if (url.pathname === '/api/startup') {
+      const resData = await runBridge('startup');
+      let starts = extractJson(resData.output) || [];
+      if (!Array.isArray(starts)) starts = [starts];
+      const jsonStr = JSON.stringify({ success: true, startup: starts });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(jsonStr);
     }
 
     // Environment Variables
@@ -323,6 +242,22 @@ const server = http.createServer(async (req, res) => {
         }));
       });
       return;
+    }
+
+    // Serve Static UI Frontend Files
+    if (!url.pathname.startsWith('/api/')) {
+      const distDir = path.resolve(__dirname, 'dist');
+      let targetFile = path.join(distDir, url.pathname === '/' ? 'index.html' : url.pathname);
+      if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
+        targetFile = path.join(distDir, 'index.html');
+      }
+
+      if (fs.existsSync(targetFile)) {
+        const ext = path.extname(targetFile).toLowerCase();
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        return fs.createReadStream(targetFile).pipe(res);
+      }
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });

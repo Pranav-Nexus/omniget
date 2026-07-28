@@ -158,7 +158,20 @@ namespace OmniGet {
             try {
                 Process.Start(psi);
                 Thread.Sleep(800);
-                Process.Start(new ProcessStartInfo("http://localhost:3001") { UseShellExecute = true });
+
+                string edgePath = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+                if (!File.Exists(edgePath)) edgePath = @"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
+
+                if (File.Exists(edgePath)) {
+                    var appPsi = new ProcessStartInfo {
+                        FileName = edgePath,
+                        Arguments = "--app=http://localhost:3001 --name=OmniGet",
+                        UseShellExecute = false
+                    };
+                    Process.Start(appPsi);
+                } else {
+                    Process.Start(new ProcessStartInfo("http://localhost:3001") { UseShellExecute = true });
+                }
             } catch (Exception ex) {
                 MessageBox.Show("Unable to launch OmniGet UI: " + ex.Message + "\n\nPlease ensure Node.js is installed.", "OmniGet Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
